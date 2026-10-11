@@ -439,6 +439,8 @@ pub mod potion_brewing;
 #[cfg(feature = "block")]
 mod block_direction;
 #[cfg(feature = "block")]
+pub mod block_extension;
+#[cfg(feature = "block")]
 pub mod block_rotation;
 #[cfg(feature = "block")]
 pub mod block_state;

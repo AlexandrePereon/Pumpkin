@@ -269,7 +269,9 @@ impl BlockStateId {
     /// The total count of all registered block states.
     pub const COUNT: u16 = Self::STATE_COUNT;
 
-    // SAFETY: There must never be a BlockStateId where self.0 >= BlockStateId::STATE_COUNT
+    // SAFETY: There must never be a BlockStateId where self.0 >= block_extension::state_count().
+    // Ids below STATE_COUNT are vanilla and index the generated tables directly; ids at or
+    // above it are resolved through the installed runtime extension.
 
     #[inline]
     #[must_use]
@@ -289,6 +291,21 @@ impl BlockStateId {
         Self::AIR
     }
 
+    /// Builds a [`BlockStateId`] for a state contributed by
+    /// [`crate::block_extension`].
+    ///
+    /// Returns `None` for ids inside the generated vanilla range; use
+    /// [`Self::new`] for those. The id is only resolvable once an extension
+    /// declaring it has been installed.
+    #[inline]
+    #[must_use]
+    pub const fn extended(inner: u16) -> Option<Self> {
+        if inner >= Self::STATE_COUNT {
+            return Some(Self(inner));
+        }
+        None
+    }
+
     #[inline(always)]
     #[must_use]
     pub const fn as_u16(self) -> u16 {
@@ -297,37 +314,37 @@ impl BlockStateId {
 
     #[inline]
     #[must_use]
-    pub const fn to_state(self) -> &'static BlockState {
+    pub fn to_state(self) -> &'static BlockState {
         BlockState::from_id(self)
     }
 
     #[inline]
     #[must_use]
-    pub const fn to_block_id(self) -> BlockId {
+    pub fn to_block_id(self) -> BlockId {
         BlockId::from_state_id(self)
     }
 
     #[inline]
     #[must_use]
-    pub const fn to_block(self) -> &'static Block {
+    pub fn to_block(self) -> &'static Block {
         Block::from_state_id(self)
     }
 
     #[inline]
     #[must_use]
-    pub const fn is_solid_render(self) -> bool {
+    pub fn is_solid_render(self) -> bool {
         self.to_state().is_solid_render()
     }
 
     #[inline]
     #[must_use]
-    pub const fn can_occlude(self) -> bool {
+    pub fn can_occlude(self) -> bool {
         self.to_state().can_occlude()
     }
 
     #[inline]
     #[must_use]
-    pub const fn has_analog_output_signal(self) -> bool {
+    pub fn has_analog_output_signal(self) -> bool {
         self.to_state().has_analog_output_signal()
     }
 
@@ -339,13 +356,13 @@ impl BlockStateId {
 
     #[inline]
     #[must_use]
-    pub const fn is_side_solid(self, side: BlockDirection) -> bool {
+    pub fn is_side_solid(self, side: BlockDirection) -> bool {
         self.to_state().is_side_solid(side)
     }
 
     #[inline]
     #[must_use]
-    pub const fn is_center_solid(self, side: BlockDirection) -> bool {
+    pub fn is_center_solid(self, side: BlockDirection) -> bool {
         self.to_state().is_center_solid(side)
     }
 
