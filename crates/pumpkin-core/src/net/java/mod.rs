@@ -58,6 +58,7 @@ pub type JavaWriteHalf = Box<dyn AsyncWrite + Send + Sync + Unpin>;
 
 pub mod chunk_data;
 pub mod handshake;
+pub mod loader;
 pub mod login;
 mod outgoing;
 pub mod pending;
