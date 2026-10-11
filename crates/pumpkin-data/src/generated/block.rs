@@ -24862,22 +24862,28 @@ impl BlockState {
     #[doc = r" If you need access to the block use `BlockState::from_id_with_block` instead."]
     #[inline]
     #[must_use]
-    pub const fn from_id(id: BlockStateId) -> &'static Self {
-        unsafe { std::hint::assert_unchecked(id.as_u16() < BlockStateId::STATE_COUNT) }
-        mappings::STATE_FROM_STATE_ID[id.as_u16() as usize]
+    pub fn from_id(id: BlockStateId) -> &'static Self {
+        let raw = id.as_u16();
+        if raw < BlockStateId::STATE_COUNT {
+            return mappings::STATE_FROM_STATE_ID[raw as usize];
+        }
+        crate::block_extension::state_by_state_id(raw).unwrap_or(Block::AIR.default_state)
     }
     #[doc = r" Get a block state from a state id and the corresponding block."]
     #[inline]
     #[must_use]
-    pub const fn from_id_with_block(id: BlockStateId) -> (&'static Block, &'static Self) {
+    pub fn from_id_with_block(id: BlockStateId) -> (&'static Block, &'static Self) {
         let block = Block::from_state_id(id);
         let state = Self::from_id(id);
         (block, state)
     }
     #[must_use]
-    pub const fn to_be_network_id(id: BlockStateId) -> u32 {
-        unsafe { std::hint::assert_unchecked(id.as_u16() < BlockStateId::STATE_COUNT) }
-        Self::STATE_ID_TO_BEDROCK[id.as_u16() as usize]
+    pub fn to_be_network_id(id: BlockStateId) -> u32 {
+        let raw = id.as_u16();
+        if raw < BlockStateId::STATE_COUNT {
+            return Self::STATE_ID_TO_BEDROCK[raw as usize];
+        }
+        Self::STATE_ID_TO_BEDROCK[BlockStateId::AIR.as_u16() as usize]
     }
 }
 impl BlockStateId {
@@ -636698,25 +636704,32 @@ impl Block {
     #[inline]
     #[must_use]
     pub fn from_registry_key(name: &str) -> Option<&'static Self> {
-        mappings::BLOCK_FROM_NAME_MAP.get(name)
+        mappings::BLOCK_FROM_NAME_MAP
+            .get(name)
+            .or_else(|| crate::block_extension::block_by_name(name))
     }
     #[doc = r" Try to get a block from a namespace prefixed name."]
     #[must_use]
     pub fn from_name(name: &str) -> Option<&'static Self> {
         let key = name.strip_prefix("minecraft:").unwrap_or(name);
-        mappings::BLOCK_FROM_NAME_MAP.get(key)
+        mappings::BLOCK_FROM_NAME_MAP
+            .get(key)
+            .or_else(|| crate::block_extension::block_by_name(key))
     }
     #[doc = r" Get a [`Block`] from a [`BlockId`]"]
     #[inline]
     #[must_use]
-    pub const fn from_id(id: BlockId) -> &'static Self {
-        unsafe { std::hint::assert_unchecked(id.as_u16() < BlockId::BLOCK_COUNT) }
-        mappings::TYPE_FROM_RAW_ID[id.as_u16() as usize]
+    pub fn from_id(id: BlockId) -> &'static Self {
+        let raw = id.as_u16();
+        if raw < BlockId::BLOCK_COUNT {
+            return mappings::TYPE_FROM_RAW_ID[raw as usize];
+        }
+        crate::block_extension::block_by_raw_id(raw).unwrap_or(&Self::AIR)
     }
     #[doc = r" Get a [`Block`] from a state id"]
     #[inline]
     #[must_use]
-    pub const fn from_state_id(id: BlockStateId) -> &'static Self {
+    pub fn from_state_id(id: BlockStateId) -> &'static Self {
         Self::from_id(BlockId::from_state_id(id))
     }
     #[doc = r" Try to parse a block from an item id."]
@@ -641135,9 +641148,12 @@ impl BlockId {
     #[doc = r" Get a [`BlockId`] from a [`BlockStateId`]"]
     #[inline]
     #[must_use]
-    pub const fn from_state_id(id: BlockStateId) -> BlockId {
-        unsafe { std::hint::assert_unchecked(id.as_u16() < BlockStateId::STATE_COUNT) }
-        mappings::BLOCK_ID_FROM_STATE_ID[id.as_u16() as usize]
+    pub fn from_state_id(id: BlockStateId) -> BlockId {
+        let raw = id.as_u16();
+        if raw < BlockStateId::STATE_COUNT {
+            return mappings::BLOCK_ID_FROM_STATE_ID[raw as usize];
+        }
+        crate::block_extension::owner_of_state_id(raw).unwrap_or(Self::AIR)
     }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]

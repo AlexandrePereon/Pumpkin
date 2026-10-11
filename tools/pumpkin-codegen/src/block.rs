@@ -1799,40 +1799,39 @@ pub fn build() -> TokenStream {
             /// If you need access to the block use `BlockState::from_id_with_block` instead.
             #[inline]
             #[must_use]
-            pub const fn from_id(id: BlockStateId) -> &'static Self {
-                // Safety: We always check this condition when creating a BlockStateId.
-                // the u16 field is private and immutable. BlockStateId::STATE_COUNT is a const u16.
-                // If the condition held once, it will always hold.
-                unsafe { std::hint::assert_unchecked(id.as_u16() < BlockStateId::STATE_COUNT) }
-                // This hint guarantees that bound checks can be optimized away in release builds.
-                // Due to debug_assertions forcing -Zub_checks=yes (rust-lang/rust#123499)
-                // bound checks-panics are replaced with ub-checks on profile.dev
-                // https://doc.rust-lang.org/nightly/unstable-book/compiler-flags/ub-checks.html
-
-                mappings::STATE_FROM_STATE_ID[id.as_u16() as usize]
+            pub fn from_id(id: BlockStateId) -> &'static Self {
+                let raw = id.as_u16();
+                if raw < BlockStateId::STATE_COUNT {
+                    // The explicit bound is what lets the compiler drop the slice check.
+                    // It replaces an `assert_unchecked`, so an id from the runtime
+                    // extension can no longer index past the generated table.
+                    return mappings::STATE_FROM_STATE_ID[raw as usize];
+                }
+                // At or above STATE_COUNT the state belongs to the runtime
+                // extension. A validated BlockStateId always has one, so air is a
+                // last resort rather than an expected outcome.
+                crate::block_extension::state_by_state_id(raw)
+                    .unwrap_or(Block::AIR.default_state)
             }
 
             #[doc = r" Get a block state from a state id and the corresponding block."]
             #[inline]
             #[must_use]
-            pub const fn from_id_with_block(id: BlockStateId) -> (&'static Block, &'static Self) {
+            pub fn from_id_with_block(id: BlockStateId) -> (&'static Block, &'static Self) {
                 let block = Block::from_state_id(id);
                 let state = Self::from_id(id);
                 (block, state)
             }
 
             #[must_use]
-            pub const fn to_be_network_id(id: BlockStateId) -> u32 {
-                // Safety: We always check this condition when creating a BlockStateId.
-                // the u16 field is private and immutable. BlockStateId::STATE_COUNT is a const u16.
-                // If the condition held once, it will always hold.
-                unsafe { std::hint::assert_unchecked(id.as_u16() < BlockStateId::STATE_COUNT) }
-                // This hint guarantees that bound checks can be optimized away in release builds.
-                // Due to debug_assertions forcing -Zub_checks=yes (rust-lang/rust#123499)
-                // bound checks-panics are replaced with ub-checks on profile.dev
-                // https://doc.rust-lang.org/nightly/unstable-book/compiler-flags/ub-checks.html
-
-                Self::STATE_ID_TO_BEDROCK[id.as_u16() as usize]
+            pub fn to_be_network_id(id: BlockStateId) -> u32 {
+                let raw = id.as_u16();
+                if raw < BlockStateId::STATE_COUNT {
+                    return Self::STATE_ID_TO_BEDROCK[raw as usize];
+                }
+                // Bedrock registers custom blocks through its own palette, which
+                // the extension does not populate yet, so map them to air.
+                Self::STATE_ID_TO_BEDROCK[BlockStateId::AIR.as_u16() as usize]
             }
         }
 
@@ -1894,36 +1893,41 @@ pub fn build() -> TokenStream {
             #[inline]
             #[must_use]
             pub fn from_registry_key(name: &str) -> Option<&'static Self> {
-                mappings::BLOCK_FROM_NAME_MAP.get(name)
+                mappings::BLOCK_FROM_NAME_MAP
+                    .get(name)
+                    .or_else(|| crate::block_extension::block_by_name(name))
             }
 
             #[doc = r" Try to get a block from a namespace prefixed name."]
             #[must_use]
             pub fn from_name(name: &str) -> Option<&'static Self> {
                 let key = name.strip_prefix("minecraft:").unwrap_or(name);
-                mappings::BLOCK_FROM_NAME_MAP.get(key)
+                mappings::BLOCK_FROM_NAME_MAP
+                    .get(key)
+                    .or_else(|| crate::block_extension::block_by_name(key))
             }
 
             /// Get a [`Block`] from a [`BlockId`]
             #[inline]
             #[must_use]
-            pub const fn from_id(id: BlockId) -> &'static Self {
-                // Safety: We always check this condition when creating a BlockId.
-                // the u16 field is private and immutable. BlockId::BLOCK_COUNT is a const u16.
-                // If the condition held once, it will always hold.
-                unsafe { std::hint::assert_unchecked(id.as_u16() < BlockId::BLOCK_COUNT) }
-                // This hint guarantees that bound checks can be optimized away in release builds.
-                // Due to debug_assertions forcing -Zub_checks=yes (rust-lang/rust#123499)
-                // bound checks-panics are replaced with ub-checks on profile.dev
-                // https://doc.rust-lang.org/nightly/unstable-book/compiler-flags/ub-checks.html
-
-                mappings::TYPE_FROM_RAW_ID[id.as_u16() as usize]
+            pub fn from_id(id: BlockId) -> &'static Self {
+                let raw = id.as_u16();
+                if raw < BlockId::BLOCK_COUNT {
+                    // The explicit bound is what lets the compiler drop the slice check.
+                    // It replaces an `assert_unchecked`, so an id from the runtime
+                    // extension can no longer index past the generated table.
+                    return mappings::TYPE_FROM_RAW_ID[raw as usize];
+                }
+                // At or above BLOCK_COUNT the block belongs to the runtime
+                // extension. A validated BlockId always has one, so air is a last
+                // resort rather than an expected outcome.
+                crate::block_extension::block_by_raw_id(raw).unwrap_or(&Self::AIR)
             }
 
             /// Get a [`Block`] from a state id
             #[inline]
             #[must_use]
-            pub const fn from_state_id(id: BlockStateId) -> &'static Self {
+            pub fn from_state_id(id: BlockStateId) -> &'static Self {
                 Self::from_id(BlockId::from_state_id(id))
             }
 
@@ -1964,17 +1968,15 @@ pub fn build() -> TokenStream {
             /// Get a [`BlockId`] from a [`BlockStateId`]
             #[inline]
             #[must_use]
-            pub const fn from_state_id(id: BlockStateId) -> BlockId {
-                // Safety: We always check this condition when creating a BlockStateId.
-                // the u16 field is private and immutable. BlockStateId::STATE_COUNT is a const u16.
-                // If the condition held once, it will always hold.
-                unsafe { std::hint::assert_unchecked(id.as_u16() < BlockStateId::STATE_COUNT) }
-                // This hint guarantees that bound checks can be optimized away in release builds.
-                // Due to debug_assertions forcing -Zub_checks=yes (rust-lang/rust#123499)
-                // bound checks-panics are replaced with ub-checks on profile.dev
-                // https://doc.rust-lang.org/nightly/unstable-book/compiler-flags/ub-checks.html
-
-                mappings::BLOCK_ID_FROM_STATE_ID[id.as_u16() as usize]
+            pub fn from_state_id(id: BlockStateId) -> BlockId {
+                let raw = id.as_u16();
+                if raw < BlockStateId::STATE_COUNT {
+                    // The explicit bound is what lets the compiler drop the slice check.
+                    // It replaces an `assert_unchecked`, so an id from the runtime
+                    // extension can no longer index past the generated table.
+                    return mappings::BLOCK_ID_FROM_STATE_ID[raw as usize];
+                }
+                crate::block_extension::owner_of_state_id(raw).unwrap_or(Self::AIR)
             }
         }
 
