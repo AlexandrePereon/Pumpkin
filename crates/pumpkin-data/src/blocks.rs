@@ -448,7 +448,9 @@ impl BlockId {
     /// The total count of all registered blocks.
     pub const COUNT: u16 = Self::BLOCK_COUNT;
 
-    // SAFETY: There must never be a BlockId where self.0 >= BlockId::BLOCK_COUNT
+    // SAFETY: There must never be a BlockId where self.0 >= block_extension::block_count().
+    // Ids below BLOCK_COUNT are vanilla and index the generated tables directly; ids at or
+    // above it are resolved through the installed runtime extension.
 
     #[inline]
     #[must_use]
@@ -466,6 +468,34 @@ impl BlockId {
             return Self(inner);
         }
         Self::AIR
+    }
+
+    /// Builds a [`BlockId`] for any currently registered block, vanilla or from
+    /// the installed extension.
+    ///
+    /// Unlike [`Self::new`] this is not `const`: the upper bound is only known
+    /// once an extension has been installed.
+    #[inline]
+    #[must_use]
+    pub fn registered(inner: u16) -> Option<Self> {
+        if inner < crate::block_extension::block_count() {
+            return Some(Self(inner));
+        }
+        None
+    }
+
+    /// Builds a [`BlockId`] for a block contributed by [`crate::block_extension`].
+    ///
+    /// Returns `None` for ids inside the generated vanilla range; use
+    /// [`Self::new`] for those. The id is only resolvable once an extension
+    /// declaring it has been installed.
+    #[inline]
+    #[must_use]
+    pub const fn extended(inner: u16) -> Option<Self> {
+        if inner >= Self::BLOCK_COUNT {
+            return Some(Self(inner));
+        }
+        None
     }
 
     #[inline]

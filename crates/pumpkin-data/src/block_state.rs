@@ -297,7 +297,9 @@ impl BlockStateId {
     /// The total count of all registered block states.
     pub const COUNT: u16 = Self::STATE_COUNT;
 
-    // SAFETY: There must never be a BlockStateId where self.0 >= BlockStateId::STATE_COUNT
+    // SAFETY: There must never be a BlockStateId where self.0 >= block_extension::state_count().
+    // Ids below STATE_COUNT are vanilla and index the generated tables directly; ids at or
+    // above it are resolved through the installed runtime extension.
 
     #[inline]
     #[must_use]
@@ -323,6 +325,21 @@ impl BlockStateId {
             return Self(inner);
         }
         Self::AIR
+    }
+
+    /// Builds a [`BlockStateId`] for a state contributed by
+    /// [`crate::block_extension`].
+    ///
+    /// Returns `None` for ids inside the generated vanilla range; use
+    /// [`Self::new`] for those. The id is only resolvable once an extension
+    /// declaring it has been installed.
+    #[inline]
+    #[must_use]
+    pub const fn extended(inner: u16) -> Option<Self> {
+        if inner >= Self::STATE_COUNT {
+            return Some(Self(inner));
+        }
+        None
     }
 
     #[inline(always)]

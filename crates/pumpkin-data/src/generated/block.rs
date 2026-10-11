@@ -12098,7 +12098,14 @@ impl BlockState {
     #[inline]
     #[must_use]
     pub const fn from_id(id: BlockStateId) -> &'static Self {
-        unsafe { lookup(&mappings::BLOCK_STATES, id.as_u16()) }
+        let raw = id.as_u16();
+        if raw < BlockStateId::STATE_COUNT {
+            return unsafe { lookup(&mappings::BLOCK_STATES, raw) };
+        }
+        match crate::block_extension::state_by_state_id(raw) {
+            Some(state) => state,
+            None => Self::from_id(BlockStateId::AIR),
+        }
     }
     #[doc = r" Get a block state from a state id and the corresponding block."]
     #[inline]
@@ -12110,7 +12117,11 @@ impl BlockState {
     }
     #[must_use]
     pub const fn to_be_network_id(id: BlockStateId) -> u32 {
-        unsafe { *lookup(Self::STATE_ID_TO_BEDROCK, id.as_u16()) }
+        let raw = id.as_u16();
+        if raw < BlockStateId::STATE_COUNT {
+            return unsafe { *lookup(Self::STATE_ID_TO_BEDROCK, raw) };
+        }
+        Self::STATE_ID_TO_BEDROCK[BlockStateId::AIR.as_u16() as usize]
     }
 }
 impl BlockStateId {
@@ -586786,6 +586797,7 @@ impl Block {
         mappings::BLOCK_FROM_NAME_MAP
             .get(name)
             .map(|id| Self::from_id(*id))
+            .or_else(|| crate::block_extension::block_by_name(name))
     }
     #[doc = r" Try to get a block from a namespace prefixed name."]
     #[must_use]
@@ -586794,12 +586806,20 @@ impl Block {
         mappings::BLOCK_FROM_NAME_MAP
             .get(key)
             .map(|id| Self::from_id(*id))
+            .or_else(|| crate::block_extension::block_by_name(key))
     }
     #[doc = r" Get a [`Block`] from a [`BlockId`]"]
     #[inline]
     #[must_use]
     pub const fn from_id(id: BlockId) -> &'static Self {
-        unsafe { lookup(&mappings::BLOCKS, id.as_u16()) }
+        let raw = id.as_u16();
+        if raw < BlockId::BLOCK_COUNT {
+            return unsafe { lookup(&mappings::BLOCKS, raw) };
+        }
+        match crate::block_extension::block_by_raw_id(raw) {
+            Some(block) => block,
+            None => Self::from_id(BlockId::AIR),
+        }
     }
     #[doc = r" Get a [`Block`] from a state id"]
     #[inline]
@@ -591224,7 +591244,14 @@ impl BlockId {
     #[inline]
     #[must_use]
     pub const fn from_state_id(id: BlockStateId) -> BlockId {
-        unsafe { *lookup(&mappings::BLOCK_ID_FROM_STATE_ID, id.as_u16()) }
+        let raw = id.as_u16();
+        if raw < BlockStateId::STATE_COUNT {
+            return unsafe { *lookup(&mappings::BLOCK_ID_FROM_STATE_ID, raw) };
+        }
+        match crate::block_extension::owner_of_state_id(raw) {
+            Some(block) => block,
+            None => Self::AIR,
+        }
     }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]

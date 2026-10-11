@@ -1855,8 +1855,16 @@ pub fn build() -> TokenStream {
             #[inline]
             #[must_use]
             pub const fn from_id(id: BlockStateId) -> &'static Self {
-                // SAFETY: BlockStateId < STATE_COUNT, see layout asserts.
-                unsafe { lookup(&mappings::BLOCK_STATES, id.as_u16()) }
+                let raw = id.as_u16();
+                if raw < BlockStateId::STATE_COUNT {
+                    // SAFETY: raw < STATE_COUNT, see layout asserts.
+                    return unsafe { lookup(&mappings::BLOCK_STATES, raw) };
+                }
+                // Past the generated table: the runtime extension, else air.
+                match crate::block_extension::state_by_state_id(raw) {
+                    Some(state) => state,
+                    None => Self::from_id(BlockStateId::AIR),
+                }
             }
 
             #[doc = r" Get a block state from a state id and the corresponding block."]
@@ -1870,8 +1878,14 @@ pub fn build() -> TokenStream {
 
             #[must_use]
             pub const fn to_be_network_id(id: BlockStateId) -> u32 {
-                // SAFETY: BlockStateId < STATE_COUNT, see layout asserts.
-                unsafe { *lookup(Self::STATE_ID_TO_BEDROCK, id.as_u16()) }
+                let raw = id.as_u16();
+                if raw < BlockStateId::STATE_COUNT {
+                    // SAFETY: raw < STATE_COUNT, see layout asserts.
+                    return unsafe { *lookup(Self::STATE_ID_TO_BEDROCK, raw) };
+                }
+                // Bedrock registers custom blocks through its own palette, which
+                // the extension does not populate yet, so map them to air.
+                Self::STATE_ID_TO_BEDROCK[BlockStateId::AIR.as_u16() as usize]
             }
         }
 
@@ -1971,22 +1985,36 @@ pub fn build() -> TokenStream {
             #[inline]
             #[must_use]
             pub fn from_registry_key(name: &str) -> Option<&'static Self> {
-                mappings::BLOCK_FROM_NAME_MAP.get(name).map(|id| Self::from_id(*id))
+                mappings::BLOCK_FROM_NAME_MAP
+                    .get(name)
+                    .map(|id| Self::from_id(*id))
+                    .or_else(|| crate::block_extension::block_by_name(name))
             }
 
             #[doc = r" Try to get a block from a namespace prefixed name."]
             #[must_use]
             pub fn from_name(name: &str) -> Option<&'static Self> {
                 let key = name.strip_prefix("minecraft:").unwrap_or(name);
-                mappings::BLOCK_FROM_NAME_MAP.get(key).map(|id| Self::from_id(*id))
+                mappings::BLOCK_FROM_NAME_MAP
+                    .get(key)
+                    .map(|id| Self::from_id(*id))
+                    .or_else(|| crate::block_extension::block_by_name(key))
             }
 
             /// Get a [`Block`] from a [`BlockId`]
             #[inline]
             #[must_use]
             pub const fn from_id(id: BlockId) -> &'static Self {
-                // SAFETY: BlockId < BLOCK_COUNT, see layout asserts.
-                unsafe { lookup(&mappings::BLOCKS, id.as_u16()) }
+                let raw = id.as_u16();
+                if raw < BlockId::BLOCK_COUNT {
+                    // SAFETY: raw < BLOCK_COUNT, see layout asserts.
+                    return unsafe { lookup(&mappings::BLOCKS, raw) };
+                }
+                // Past the generated table: the runtime extension, else air.
+                match crate::block_extension::block_by_raw_id(raw) {
+                    Some(block) => block,
+                    None => Self::from_id(BlockId::AIR),
+                }
             }
 
             /// Get a [`Block`] from a state id
@@ -2034,8 +2062,16 @@ pub fn build() -> TokenStream {
             #[inline]
             #[must_use]
             pub const fn from_state_id(id: BlockStateId) -> BlockId {
-                // SAFETY: BlockStateId < STATE_COUNT, see layout asserts.
-                unsafe { *lookup(&mappings::BLOCK_ID_FROM_STATE_ID, id.as_u16()) }
+                let raw = id.as_u16();
+                if raw < BlockStateId::STATE_COUNT {
+                    // SAFETY: raw < STATE_COUNT, see layout asserts.
+                    return unsafe { *lookup(&mappings::BLOCK_ID_FROM_STATE_ID, raw) };
+                }
+                // Past the generated table: the runtime extension, else air.
+                match crate::block_extension::owner_of_state_id(raw) {
+                    Some(block) => block,
+                    None => Self::AIR,
+                }
             }
         }
 

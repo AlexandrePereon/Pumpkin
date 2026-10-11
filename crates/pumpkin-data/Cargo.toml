@@ -204,5 +204,9 @@ criterion.workspace = true
 name = "has_random_ticks"
 harness = false
 
+[[bench]]
+name = "block_lookup"
+harness = false
+
 [lints]
 workspace = true
