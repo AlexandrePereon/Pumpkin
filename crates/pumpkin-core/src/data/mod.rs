@@ -11,6 +11,7 @@ pub mod advancement_data;
 pub mod banlist_serializer;
 pub mod banned_ip;
 pub mod banned_player;
+pub mod block_extension;
 pub mod datapack;
 pub mod player_server;
 pub mod usercache;
