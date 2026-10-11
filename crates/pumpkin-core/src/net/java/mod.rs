@@ -53,6 +53,7 @@ use tracing::{debug, error, warn};
 
 pub mod chunk_data;
 pub mod handshake;
+pub mod loader;
 pub mod login;
 mod outgoing;
 pub mod pending;
