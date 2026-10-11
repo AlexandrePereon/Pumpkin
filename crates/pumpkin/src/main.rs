@@ -117,6 +117,10 @@ async fn main() {
     }
     print_support_links_and_warning();
 
+    // Blocks outside the generated vanilla set have to exist before anything
+    // reads block data, and well before a client is told about their ids.
+    pumpkin_core::data::block_extension::load_and_install();
+
     tokio::spawn(async {
         if let Err(err) = setup_sighandler().await {
             tracing::error!("Unable to setup signal handlers: {err}");
