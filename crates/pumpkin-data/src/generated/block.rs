@@ -597648,7 +597648,7 @@ impl Block {
                 Box::new(PaleOakWoodLikeProperties::from_state_id(state_id))
             }
             BlockId::CHORUS_FLOWER => Box::new(ChorusFlowerLikeProperties::from_state_id(state_id)),
-            _ => return None,
+            _ => return crate::block_extension::properties_of(self, state_id),
         })
     }
     #[track_caller]
@@ -598635,7 +598635,10 @@ impl Block {
                 Box::new(PaleOakWoodLikeProperties::from_props(props, self))
             }
             BlockId::CHORUS_FLOWER => Box::new(ChorusFlowerLikeProperties::from_props(props, self)),
-            _ => panic!("Invalid props"),
+            _ => match crate::block_extension::properties_from(self, props) {
+                Some(properties) => properties,
+                None => panic!("Invalid props"),
+            },
         }
     }
 }

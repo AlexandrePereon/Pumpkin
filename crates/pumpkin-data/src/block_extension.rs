@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::OnceLock;
 
+use crate::block_properties::BlockProperties;
 use crate::{Block, BlockId, BlockState, BlockStateId};
 
 /// Why [`install`] rejected an extension.
@@ -29,6 +30,14 @@ pub enum InstallError {
     DuplicateName { name: &'static str },
     /// Raw ids would exceed what `u16` can carry.
     TooMany,
+    /// The product of the property value counts is not the number of states.
+    PropertyLayout {
+        name: &'static str,
+        expected_states: usize,
+        found_states: usize,
+    },
+    /// Properties must come in Minecraft's order, sorted by name, without repeats.
+    PropertiesNotSorted { name: &'static str },
 }
 
 impl fmt::Display for InstallError {
@@ -44,15 +53,44 @@ impl fmt::Display for InstallError {
             Self::NoStates { name } => write!(f, "block {name} declares no states"),
             Self::DuplicateName { name } => write!(f, "block name {name} is already registered"),
             Self::TooMany => write!(f, "too many blocks to address with a u16 id"),
+            Self::PropertyLayout {
+                name,
+                expected_states,
+                found_states,
+            } => write!(
+                f,
+                "block {name} has {found_states} states but its properties describe {expected_states}"
+            ),
+            Self::PropertiesNotSorted { name } => {
+                write!(f, "properties of block {name} are not sorted by name")
+            }
         }
     }
 }
 
 impl std::error::Error for InstallError {}
 
+/// One block-state property: its name and its values, in Minecraft's order.
+#[derive(Debug)]
+pub struct PropertyDef {
+    pub name: &'static str,
+    pub values: &'static [&'static str],
+}
+
+/// A block contributed to the extension, with the properties its states span.
+pub struct ExtensionBlock {
+    pub block: &'static Block,
+    /// Sorted by name — the order Minecraft's `StateDefinition` uses — so that
+    /// states are their cartesian product with the last property varying
+    /// fastest. Empty for a block with a single state.
+    pub properties: &'static [PropertyDef],
+}
+
 struct Extension {
     /// Indexed by `raw_id - BlockId::COUNT`.
     blocks: Vec<&'static Block>,
+    /// Same indexing as `blocks`.
+    properties: Vec<&'static [PropertyDef]>,
     /// Indexed by `state_id - BlockStateId::COUNT`.
     states: Vec<&'static BlockState>,
     /// Owning block for each extended state, same indexing as `states`.
@@ -71,13 +109,16 @@ static EXTENSION: OnceLock<Extension> = OnceLock::new();
 ///
 /// # Errors
 ///
-/// Returns [`InstallError`] when an id is out of sequence, a name collides, or
-/// an extension is already installed. Nothing is installed on error.
-pub fn install(blocks: Vec<&'static Block>) -> Result<(), InstallError> {
+/// Returns [`InstallError`] when an id is out of sequence, a name collides, a
+/// block's properties do not describe its states, or an extension is already
+/// installed. Nothing is installed on error.
+pub fn install(entries: Vec<ExtensionBlock>) -> Result<(), InstallError> {
     if EXTENSION.get().is_some() {
         return Err(InstallError::AlreadyInstalled);
     }
 
+    let mut blocks = Vec::with_capacity(entries.len());
+    let mut properties = Vec::with_capacity(entries.len());
     let mut states = Vec::new();
     let mut owners = Vec::new();
     let mut by_name = BTreeMap::new();
@@ -85,7 +126,8 @@ pub fn install(blocks: Vec<&'static Block>) -> Result<(), InstallError> {
     let mut next_block_id = BlockId::COUNT;
     let mut next_state_id = BlockStateId::COUNT;
 
-    for block in &blocks {
+    for entry in entries {
+        let block = entry.block;
         let raw = block.id.as_u16();
         if raw != next_block_id {
             return Err(InstallError::BlockIdNotContiguous {
@@ -96,6 +138,26 @@ pub fn install(blocks: Vec<&'static Block>) -> Result<(), InstallError> {
 
         if block.states.is_empty() {
             return Err(InstallError::NoStates { name: block.name });
+        }
+
+        if !entry
+            .properties
+            .windows(2)
+            .all(|pair| pair[0].name < pair[1].name)
+        {
+            return Err(InstallError::PropertiesNotSorted { name: block.name });
+        }
+        let expected_states = entry
+            .properties
+            .iter()
+            .map(|def| def.values.len())
+            .product::<usize>();
+        if expected_states != block.states.len() {
+            return Err(InstallError::PropertyLayout {
+                name: block.name,
+                expected_states,
+                found_states: block.states.len(),
+            });
         }
 
         for state in block.states {
@@ -114,15 +176,19 @@ pub fn install(blocks: Vec<&'static Block>) -> Result<(), InstallError> {
         // `Block::from_name` can only see vanilla here, because the extension is
         // not installed yet. A collision would otherwise be silent: the
         // generated map is consulted first and the extension never reached.
-        if Block::from_name(block.name).is_some() || by_name.insert(block.name, *block).is_some() {
+        if Block::from_name(block.name).is_some() || by_name.insert(block.name, block).is_some() {
             return Err(InstallError::DuplicateName { name: block.name });
         }
+
+        blocks.push(block);
+        properties.push(entry.properties);
 
         next_block_id = next_block_id.checked_add(1).ok_or(InstallError::TooMany)?;
     }
 
     let extension = Extension {
         blocks,
+        properties,
         states,
         owners,
         by_name,
@@ -171,46 +237,190 @@ pub(crate) fn state_by_state_id(raw: u16) -> Option<&'static BlockState> {
     EXTENSION.get()?.states.get(index).copied()
 }
 
+fn properties_of_block(block: &Block) -> Option<&'static [PropertyDef]> {
+    let index = usize::from(block.id.as_u16().checked_sub(BlockId::COUNT)?);
+    EXTENSION.get()?.properties.get(index).copied()
+}
+
+/// Properties of an extension block, computed at runtime.
+///
+/// Vanilla blocks get a generated type per property layout. Extension blocks
+/// cannot, so this one carries the layout with it and keeps the state's index
+/// within its block, from which every value can be decoded.
+pub struct ExtensionProperties {
+    properties: &'static [PropertyDef],
+    index: u16,
+}
+
+impl ExtensionProperties {
+    fn new(block: &Block, index: u16) -> Self {
+        Self {
+            properties: properties_of_block(block).unwrap_or_default(),
+            index,
+        }
+    }
+
+    /// The value index of each property, the last property varying fastest.
+    fn value_indices(&self) -> Vec<usize> {
+        let mut rest = usize::from(self.index);
+        let mut indices = vec![0; self.properties.len()];
+        for (slot, def) in indices.iter_mut().zip(self.properties).rev() {
+            let len = def.values.len().max(1);
+            *slot = rest % len;
+            rest /= len;
+        }
+        indices
+    }
+
+    fn from_value_indices(properties: &'static [PropertyDef], indices: &[usize]) -> Self {
+        let mut index = 0usize;
+        for (def, value) in properties.iter().zip(indices) {
+            index = index * def.values.len() + value;
+        }
+        Self {
+            properties,
+            index: u16::try_from(index).unwrap_or(0),
+        }
+    }
+}
+
+impl BlockProperties for ExtensionProperties {
+    fn to_index(&self) -> u16 {
+        self.index
+    }
+
+    /// Without a block there is no layout to decode against, so the result
+    /// only round-trips through [`Self::to_index`] and [`Self::to_state_id`].
+    fn from_index(index: u16) -> Self {
+        Self {
+            properties: &[],
+            index,
+        }
+    }
+
+    fn handles_block_id(id: BlockId) -> bool {
+        block_by_raw_id(id.as_u16()).is_some()
+    }
+
+    fn to_state_id(&self, block: &Block) -> BlockStateId {
+        block
+            .states
+            .get(usize::from(self.index))
+            .map_or(block.default_state.id, |state| state.id)
+    }
+
+    fn from_state_id(id: BlockStateId, block: &Block) -> Self {
+        let index = block
+            .states
+            .first()
+            .and_then(|first| id.as_u16().checked_sub(first.id.as_u16()))
+            .filter(|index| usize::from(*index) < block.states.len())
+            .unwrap_or(0);
+        Self::new(block, index)
+    }
+
+    fn default(block: &Block) -> Self {
+        Self::from_state_id(block.default_state.id, block)
+    }
+
+    fn to_props(&self) -> Vec<(&'static str, &'static str)> {
+        self.properties
+            .iter()
+            .zip(self.value_indices())
+            .filter_map(|(def, value)| def.values.get(value).map(|v| (def.name, *v)))
+            .collect()
+    }
+
+    /// Starts from the default state and applies each recognised pair. Unknown
+    /// names and values are ignored, as the generated types do; validating them
+    /// is the caller's job.
+    fn from_props(props: &[(&str, &str)], block: &Block) -> Self {
+        let default = Self::default(block);
+        let mut indices = default.value_indices();
+        for (name, value) in props {
+            let found = default
+                .properties
+                .iter()
+                .enumerate()
+                .find(|(_, def)| def.name == *name)
+                .and_then(|(slot, def)| Some((slot, def.values.iter().position(|v| v == value)?)));
+            if let Some((slot, value_index)) = found {
+                indices[slot] = value_index;
+            }
+        }
+        Self::from_value_indices(default.properties, &indices)
+    }
+}
+
+/// The generated `Block::properties` falls back here for blocks it does not know.
+pub(crate) fn properties_of(
+    block: &Block,
+    state: BlockStateId,
+) -> Option<Box<dyn BlockProperties>> {
+    properties_of_block(block)?;
+    Some(Box::new(ExtensionProperties::from_state_id(state, block)))
+}
+
+/// The generated `Block::from_properties` falls back here for blocks it does not know.
+pub(crate) fn properties_from(
+    block: &Block,
+    props: &[(&str, &str)],
+) -> Option<Box<dyn BlockProperties>> {
+    properties_of_block(block)?;
+    Some(Box::new(ExtensionProperties::from_props(props, block)))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{block_count, install, state_count};
+    use super::{ExtensionBlock, PropertyDef, block_count, install, state_count};
     use crate::block_properties::NoteblockInstrument;
     use crate::block_state::PistonBehavior;
     use crate::{Block, BlockId, BlockState, BlockStateId};
 
-    const NAME: &str = "pumpkinverse_test:marker";
+    const MARKER: &str = "pumpkinverse_test:marker";
+    const LAMP: &str = "pumpkinverse_test:lamp";
 
-    /// There is deliberately one test here. `install` writes a process-wide
-    /// `OnceLock`, so a second installing test would pass or fail depending on
-    /// thread order.
-    #[test]
-    fn resolves_ids_beyond_the_vanilla_range() {
-        let vanilla_blocks = BlockId::COUNT;
-        let vanilla_states = BlockStateId::COUNT;
+    /// The lamp from `testmod`, laid out as Minecraft's `StateDefinition` does:
+    /// properties sorted by name, booleans as `[true, false]`.
+    static LAMP_PROPERTIES: [PropertyDef; 2] = [
+        PropertyDef {
+            name: "facing",
+            values: &["north", "south", "west", "east"],
+        },
+        PropertyDef {
+            name: "lit",
+            values: &["true", "false"],
+        },
+    ];
 
-        let block_id = BlockId::extended(vanilla_blocks).unwrap_or(BlockId::AIR);
-        let state_id = BlockStateId::extended(vanilla_states).unwrap_or(BlockStateId::AIR);
-
+    fn leak_block(
+        name: &'static str,
+        id: BlockId,
+        first_state: u16,
+        states: u16,
+        default: usize,
+    ) -> &'static Block {
         let states: &'static [BlockState] = Box::leak(
-            vec![BlockState {
-                id: state_id,
-                state_flags: 0,
-                side_flags: 0,
-                instrument: NoteblockInstrument::Harp,
-                luminance: 0,
-                piston_behavior: PistonBehavior::Normal,
-                hardness: 1.0,
-                collision_shapes: &[],
-                outline_shapes: &[],
-                opacity: 0,
-                block_entity_type: u16::MAX,
-            }]
-            .into_boxed_slice(),
+            (0..states)
+                .map(|offset| BlockState {
+                    id: BlockStateId::extended(first_state + offset).unwrap_or(BlockStateId::AIR),
+                    state_flags: 0,
+                    side_flags: 0,
+                    instrument: NoteblockInstrument::Harp,
+                    luminance: 0,
+                    piston_behavior: PistonBehavior::Normal,
+                    hardness: 1.0,
+                    collision_shapes: &[],
+                    outline_shapes: &[],
+                    opacity: 0,
+                    block_entity_type: u16::MAX,
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
         );
-
-        let block: &'static Block = Box::leak(Box::new(Block {
-            id: block_id,
-            name: NAME,
+        Box::leak(Box::new(Block {
+            id,
+            name,
             hardness: 1.0,
             blast_resistance: 1.0,
             map_color: 0,
@@ -218,24 +428,56 @@ mod tests {
             velocity_multiplier: 1.0,
             jump_velocity_multiplier: 1.0,
             item_id: 0,
-            default_state: &states[0],
+            default_state: &states[default],
             states,
             flammable: None,
             experience: None,
-        }));
+        }))
+    }
 
-        assert!(install(vec![block]).is_ok(), "install rejected the block");
+    /// There is deliberately one test here. `install` writes a process-wide
+    /// `OnceLock`, so a second installing test would pass or fail depending on
+    /// thread order.
+    #[test]
+    fn resolves_ids_and_properties_beyond_the_vanilla_range() {
+        let vanilla_blocks = BlockId::COUNT;
+        let vanilla_states = BlockStateId::COUNT;
 
-        assert_eq!(block_count(), vanilla_blocks + 1);
-        assert_eq!(state_count(), vanilla_states + 1);
+        let marker_id = BlockId::extended(vanilla_blocks).unwrap_or(BlockId::AIR);
+        let lamp_id = BlockId::extended(vanilla_blocks + 1).unwrap_or(BlockId::AIR);
+        let marker_state = BlockStateId::extended(vanilla_states).unwrap_or(BlockStateId::AIR);
+        let lamp_first = vanilla_states + 1;
+
+        let marker = leak_block(MARKER, marker_id, vanilla_states, 1, 0);
+        // The Extractor reports the lamp's default as its second state:
+        // facing=north, lit=false.
+        let lamp = leak_block(LAMP, lamp_id, lamp_first, 8, 1);
+
+        let installed = install(vec![
+            ExtensionBlock {
+                block: marker,
+                properties: &[],
+            },
+            ExtensionBlock {
+                block: lamp,
+                properties: &LAMP_PROPERTIES,
+            },
+        ]);
+        assert!(installed.is_ok(), "install rejected the blocks");
+
+        assert_eq!(block_count(), vanilla_blocks + 2);
+        assert_eq!(state_count(), vanilla_states + 9);
 
         // Every lookup path reaches the extension.
-        assert_eq!(Block::from_name(NAME).map(|b| b.name), Some(NAME));
-        assert_eq!(Block::from_registry_key(NAME).map(|b| b.name), Some(NAME));
-        assert_eq!(Block::from_id(block_id).name, NAME);
-        assert_eq!(Block::from_state_id(state_id).name, NAME);
-        assert_eq!(BlockState::from_id(state_id).id, state_id);
-        assert_eq!(BlockId::from_state_id(state_id), block_id);
+        assert_eq!(Block::from_name(MARKER).map(|b| b.name), Some(MARKER));
+        assert_eq!(
+            Block::from_registry_key(MARKER).map(|b| b.name),
+            Some(MARKER)
+        );
+        assert_eq!(Block::from_id(marker_id).name, MARKER);
+        assert_eq!(Block::from_state_id(marker_state).name, MARKER);
+        assert_eq!(BlockState::from_id(marker_state).id, marker_state);
+        assert_eq!(BlockId::from_state_id(marker_state), marker_id);
 
         // Vanilla still resolves through the generated tables.
         assert_eq!(Block::from_name("stone").map(|b| b.name), Some("stone"));
@@ -244,9 +486,58 @@ mod tests {
 
         // An id the extension does not declare falls back instead of indexing
         // out of bounds, which is what the removed `assert_unchecked` risked.
-        let unknown = BlockId::extended(vanilla_blocks + 1).unwrap_or(BlockId::AIR);
+        let unknown = BlockId::extended(vanilla_blocks + 2).unwrap_or(BlockId::AIR);
         assert_eq!(Block::from_id(unknown).name, Block::AIR.name);
 
-        assert!(install(vec![block]).is_err(), "installed twice");
+        // Properties go through the generated dispatch and fall back to the
+        // extension. Expected ids are the Extractor's, from a real server:
+        // the lamp spans 35724..=35731, last property varying fastest.
+        let props = |offset: u16| {
+            let id = BlockStateId::extended(lamp_first + offset).unwrap_or(BlockStateId::AIR);
+            lamp.properties(id).map(|p| p.to_props())
+        };
+        assert_eq!(props(0), Some(vec![("facing", "north"), ("lit", "true")]));
+        assert_eq!(props(1), Some(vec![("facing", "north"), ("lit", "false")]));
+        assert_eq!(props(6), Some(vec![("facing", "east"), ("lit", "true")]));
+        assert_eq!(props(7), Some(vec![("facing", "east"), ("lit", "false")]));
+
+        let state_of =
+            |pairs: &[(&str, &str)]| lamp.from_properties(pairs).to_state_id(lamp).as_u16();
+        assert_eq!(
+            state_of(&[("facing", "east"), ("lit", "true")]),
+            lamp_first + 6
+        );
+        assert_eq!(state_of(&[("facing", "south")]), lamp_first + 3);
+        assert_eq!(state_of(&[]), lamp_first + 1);
+        // Unknown names and values are ignored, leaving the default in place.
+        assert_eq!(
+            state_of(&[("facing", "up"), ("colour", "red")]),
+            lamp_first + 1
+        );
+
+        // Every state round-trips through its properties.
+        for offset in 0..8 {
+            let id = BlockStateId::extended(lamp_first + offset).unwrap_or(BlockStateId::AIR);
+            let pairs = lamp
+                .properties(id)
+                .map(|p| p.to_props())
+                .unwrap_or_default();
+            assert_eq!(state_of(&pairs), lamp_first + offset);
+        }
+
+        // A block with a single state has no properties to report.
+        assert_eq!(
+            marker.properties(marker_state).map(|p| p.to_props()),
+            Some(vec![])
+        );
+
+        assert!(
+            install(vec![ExtensionBlock {
+                block: marker,
+                properties: &[],
+            }])
+            .is_err(),
+            "installed twice"
+        );
     }
 }

@@ -1526,7 +1526,8 @@ pub fn build() -> TokenStream {
             pub fn properties(&self, state_id: BlockStateId) -> Option<Box<dyn BlockProperties>> {
                 Some(match self.id {
                     #(#block_properties_from_state_and_block_id_arms)*
-                    _ => return None,
+                    // Not a generated layout: an extension block, or none at all.
+                    _ => return crate::block_extension::properties_of(self, state_id),
                 })
             }
 
@@ -1535,7 +1536,10 @@ pub fn build() -> TokenStream {
             pub fn from_properties(&self, props: &[(&str, &str)]) -> Box<dyn BlockProperties> {
                 match self.id {
                     #(#block_properties_from_props_and_name_arms)*
-                    _ => panic!("Invalid props")
+                    _ => match crate::block_extension::properties_from(self, props) {
+                        Some(properties) => properties,
+                        None => panic!("Invalid props"),
+                    },
                 }
             }
         }
