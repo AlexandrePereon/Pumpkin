@@ -214,7 +214,9 @@ pub fn state_count() -> u16 {
     BlockStateId::COUNT.saturating_add(extra.try_into().unwrap_or(u16::MAX))
 }
 
-#[inline]
+// Off the vanilla hot path: only ids past the generated range get here.
+#[cold]
+#[inline(never)]
 pub(crate) fn block_by_raw_id(raw: u16) -> Option<&'static Block> {
     let index = usize::from(raw.checked_sub(BlockId::COUNT)?);
     EXTENSION.get()?.blocks.get(index).copied()
@@ -225,13 +227,17 @@ pub(crate) fn block_by_name(name: &str) -> Option<&'static Block> {
     EXTENSION.get()?.by_name.get(name).copied()
 }
 
-#[inline]
+// Off the vanilla hot path: only ids past the generated range get here.
+#[cold]
+#[inline(never)]
 pub(crate) fn owner_of_state_id(raw: u16) -> Option<BlockId> {
     let index = usize::from(raw.checked_sub(BlockStateId::COUNT)?);
     EXTENSION.get()?.owners.get(index).copied()
 }
 
-#[inline]
+// Off the vanilla hot path: only ids past the generated range get here.
+#[cold]
+#[inline(never)]
 pub(crate) fn state_by_state_id(raw: u16) -> Option<&'static BlockState> {
     let index = usize::from(raw.checked_sub(BlockStateId::COUNT)?);
     EXTENSION.get()?.states.get(index).copied()
