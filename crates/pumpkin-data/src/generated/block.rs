@@ -595516,7 +595516,7 @@ impl Block {
     }
     #[doc = r" Try to parse a block from an item id."]
     #[must_use]
-    pub const fn from_item_id(id: u16) -> Option<&'static Self> {
+    pub fn from_item_id(id: u16) -> Option<&'static Self> {
         #[allow(unreachable_patterns)]
         match id {
             0u16 => Some(&Self::AIR),
@@ -596661,7 +596661,7 @@ impl Block {
             300u16 => Some(&Self::OPEN_EYEBLOSSOM),
             301u16 => Some(&Self::CLOSED_EYEBLOSSOM),
             245u16 => Some(&Self::FIREFLY_BUSH),
-            _ => None,
+            _ => crate::block_extension::block_by_item_id(id),
         }
     }
     #[track_caller]

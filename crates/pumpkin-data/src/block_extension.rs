@@ -96,6 +96,8 @@ struct Extension {
     /// Owning block for each extended state, same indexing as `states`.
     owners: Vec<BlockId>,
     by_name: BTreeMap<&'static str, &'static Block>,
+    /// Blocks placed by an item, keyed by that item's raw id.
+    by_item: BTreeMap<u16, &'static Block>,
 }
 
 static EXTENSION: OnceLock<Extension> = OnceLock::new();
@@ -122,6 +124,7 @@ pub fn install(entries: Vec<ExtensionBlock>) -> Result<(), InstallError> {
     let mut states = Vec::new();
     let mut owners = Vec::new();
     let mut by_name = BTreeMap::new();
+    let mut by_item = BTreeMap::new();
 
     let mut next_block_id = BlockId::COUNT;
     let mut next_state_id = BlockStateId::COUNT;
@@ -180,6 +183,11 @@ pub fn install(entries: Vec<ExtensionBlock>) -> Result<(), InstallError> {
             return Err(InstallError::DuplicateName { name: block.name });
         }
 
+        // Item 0 is air: the block has no item of its own.
+        if block.item_id != 0 {
+            by_item.insert(block.item_id, block);
+        }
+
         blocks.push(block);
         properties.push(entry.properties);
 
@@ -192,6 +200,7 @@ pub fn install(entries: Vec<ExtensionBlock>) -> Result<(), InstallError> {
         states,
         owners,
         by_name,
+        by_item,
     };
 
     EXTENSION
@@ -225,6 +234,13 @@ pub(crate) fn block_by_raw_id(raw: u16) -> Option<&'static Block> {
 #[inline]
 pub(crate) fn block_by_name(name: &str) -> Option<&'static Block> {
     EXTENSION.get()?.by_name.get(name).copied()
+}
+
+// Off the vanilla path: only item ids with no vanilla block get here.
+#[cold]
+#[inline(never)]
+pub(crate) fn block_by_item_id(item_id: u16) -> Option<&'static Block> {
+    EXTENSION.get()?.by_item.get(&item_id).copied()
 }
 
 // Off the vanilla hot path: only ids past the generated range get here.

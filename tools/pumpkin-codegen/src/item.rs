@@ -1731,6 +1731,16 @@ pub fn build() -> TokenStream {
     let mut all_java_items = Vec::new();
     let mut all_java_item_ids = Vec::new();
 
+    // The runtime item extension continues the vanilla ids, so they must be
+    // exactly `0..count` for its ids to follow on without a gap.
+    let mut vanilla_ids: Vec<u16> = items.values().map(|item| item.id).collect();
+    vanilla_ids.sort_unstable();
+    assert!(
+        vanilla_ids.iter().copied().eq(0..vanilla_ids.len() as u16),
+        "vanilla item ids are not contiguous from 0"
+    );
+    let vanilla_count = LitInt::new(&vanilla_ids.len().to_string(), Span::call_site());
+
     for (name, item) in &items {
         let const_ident = format_ident!("{}", name.to_shouty_snake_case());
 
@@ -1968,6 +1978,9 @@ pub fn build() -> TokenStream {
         impl Item {
             #constants
 
+            #[doc = "Number of generated vanilla items. Their raw ids are `0..VANILLA_COUNT`; items from the runtime extension follow."]
+            pub const VANILLA_COUNT: u16 = #vanilla_count;
+
             #[must_use]
             #[allow(deprecated)]
             pub fn translated_name(&self) -> TextComponent {
@@ -1993,16 +2006,19 @@ pub fn build() -> TokenStream {
                 let name = name.strip_prefix("minecraft:").unwrap_or(name);
                 match name {
                     #type_from_name
-                    _ => None
+                    // Not vanilla: an item from the runtime extension, keyed by its
+                    // full `namespace:path`, or none at all.
+                    _ => crate::item_extension::item_by_name(name)
                 }
             }
 
             #[doc = "Try to parse an item from a raw id."]
             #[must_use]
-            pub const fn from_id(id: u16) -> Option<&'static Self> {
+            pub fn from_id(id: u16) -> Option<&'static Self> {
                 match id {
                     #type_from_raw_id_arms
-                    _ => None
+                    // Past the vanilla range: an item from the runtime extension.
+                    _ => crate::item_extension::item_by_raw_id(id)
                 }
             }
         }

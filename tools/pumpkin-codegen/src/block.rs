@@ -1513,11 +1513,12 @@ pub fn build() -> TokenStream {
 
             #[doc = r" Try to parse a block from an item id."]
             #[must_use]
-            pub const fn from_item_id(id: u16) -> Option<&'static Self> {
+            pub fn from_item_id(id: u16) -> Option<&'static Self> {
                 #[allow(unreachable_patterns)]
                 match id {
                     #(#block_from_item_id_arms)*
-                    _ => None
+                    // Not a vanilla block item: perhaps the item of an extension block.
+                    _ => crate::block_extension::block_by_item_id(id)
                 }
             }
 
