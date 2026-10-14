@@ -2041,7 +2041,8 @@ pub fn build() -> TokenStream {
                 #[allow(unreachable_patterns)]
                 match id {
                     #(#block_from_item_id_arms)*
-                    _ => None
+                    // Not a vanilla block item: perhaps the item of an extension block.
+                    _ => crate::block_extension::block_by_item_id(id)
                 }
             }
 

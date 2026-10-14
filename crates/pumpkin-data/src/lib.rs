@@ -28,6 +28,9 @@ pub mod item;
 #[cfg(feature = "item")]
 pub mod item_stack;
 
+#[cfg(feature = "item")]
+pub mod item_extension;
+
 #[cfg(feature = "packet")]
 #[rustfmt::skip]
 #[path = "generated/packet.rs"]

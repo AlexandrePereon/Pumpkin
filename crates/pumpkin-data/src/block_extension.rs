@@ -100,6 +100,8 @@ struct Extension {
     /// Owning block for each extended state, same indexing as `states`.
     owners: Vec<BlockId>,
     by_name: BTreeMap<&'static str, &'static Block>,
+    /// Blocks placed by an item, sorted by that item's raw id.
+    by_item: Vec<(u16, &'static Block)>,
 }
 
 /// A write-once slot, like `OnceLock`, that `const fn` lookups can also read.
@@ -160,6 +162,7 @@ pub fn install(entries: Vec<ExtensionBlock>) -> Result<(), InstallError> {
     let mut states = Vec::new();
     let mut owners = Vec::new();
     let mut by_name = BTreeMap::new();
+    let mut by_item = BTreeMap::new();
 
     let mut next_block_id = BlockId::COUNT;
     let mut next_state_id = BlockStateId::COUNT;
@@ -218,6 +221,11 @@ pub fn install(entries: Vec<ExtensionBlock>) -> Result<(), InstallError> {
             return Err(InstallError::DuplicateName { name: block.name });
         }
 
+        // Item 0 is air: the block has no item of its own.
+        if block.item_id != 0 {
+            by_item.insert(block.item_id, block);
+        }
+
         blocks.push(block);
         properties.push(entry.properties);
 
@@ -230,6 +238,7 @@ pub fn install(entries: Vec<ExtensionBlock>) -> Result<(), InstallError> {
         states,
         owners,
         by_name,
+        by_item: by_item.into_iter().collect(),
     };
 
     EXTENSION
@@ -273,6 +282,30 @@ pub(crate) const fn block_by_raw_id(raw: u16) -> Option<&'static Block> {
 #[inline]
 pub(crate) fn block_by_name(name: &str) -> Option<&'static Block> {
     EXTENSION.get()?.by_name.get(name).copied()
+}
+
+// Off the vanilla path: only item ids with no vanilla block get here.
+#[cold]
+#[inline(never)]
+pub(crate) const fn block_by_item_id(item_id: u16) -> Option<&'static Block> {
+    let Some(extension) = EXTENSION.get_unsynchronized() else {
+        return None;
+    };
+    let by_item = extension.by_item.as_slice();
+    let (mut low, mut high) = (0, by_item.len());
+    while low < high {
+        let mid = low + (high - low) / 2;
+        let (id, block) = by_item[mid];
+        if id == item_id {
+            return Some(block);
+        }
+        if id < item_id {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    None
 }
 
 // Off the vanilla hot path: only ids past the generated range get here.

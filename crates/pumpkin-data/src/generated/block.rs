@@ -587987,7 +587987,7 @@ impl Block {
             300u16 => Some(Self::from_id(BlockId::OPEN_EYEBLOSSOM)),
             301u16 => Some(Self::from_id(BlockId::CLOSED_EYEBLOSSOM)),
             245u16 => Some(Self::from_id(BlockId::FIREFLY_BUSH)),
-            _ => None,
+            _ => crate::block_extension::block_by_item_id(id),
         }
     }
     #[track_caller]
