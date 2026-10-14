@@ -11,7 +11,7 @@ impl PendingConnection {
         // Fabric's registry sync goes first. Tag packets reference registry
         // entries by integer id, so the client has to agree on those ids before
         // anything that uses them arrives.
-        match fabric::block_registry_sync_payload() {
+        match fabric::extension_registry_sync_payload() {
             Ok(Some(payload)) => {
                 self.send_packet_now(&CPluginMessage::new(
                     fabric::REGISTRY_SYNC_CHANNEL,
@@ -19,7 +19,7 @@ impl PendingConnection {
                 ))
                 .await;
             }
-            // No extension block installed, so there are no ids to dictate.
+            // No extension block or item installed, so there are no ids to dictate.
             Ok(None) => {}
             Err(error) => warn!("Could not build the Fabric registry sync payload: {error}"),
         }
