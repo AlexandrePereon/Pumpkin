@@ -12,7 +12,8 @@
 //!
 //! The wire format mirrors `net.fabricmc.fabric.impl.registry.sync.packet.RegistrySyncPayload`.
 
-use pumpkin_data::{Block, BlockId, block_extension};
+use pumpkin_data::item::Item;
+use pumpkin_data::{Block, BlockId, block_extension, item_extension};
 use pumpkin_protocol::VarInt;
 use pumpkin_protocol::ser::{NetworkWriteExt, WritingError};
 
@@ -161,42 +162,70 @@ fn write_entries(out: &mut Vec<u8>, entries: &[(&str, u16)]) -> Result<(), Writi
     Ok(())
 }
 
-/// Builds the `minecraft:block` payload, or `None` when no extension block is
-/// installed.
+/// Builds the payload for every registry the runtime extensions added to, or
+/// `None` when none did.
 ///
 /// Returning `None` is the safe default rather than an optimisation. The client
 /// remaps its registries to whatever map it receives, so sending a vanilla-only
 /// map could disturb the entries of a modded client that works against Pumpkin
 /// today. Fabric reaches the same place from the other side: it skips registries
-/// that carry no modded content.
+/// that carry no modded content, so a registry is sent only once it holds an
+/// extension entry.
 ///
-/// The whole registry is sent, vanilla included, because that is what Fabric
+/// Each registry is sent whole, vanilla included, because that is what Fabric
 /// sends. The vanilla half is a no-op for a client whose vanilla ids already
 /// match, and omitting it would leave those entries unmapped.
 ///
 /// # Errors
 ///
 /// Propagates [`WritingError`] from the encoder.
-pub fn block_registry_sync_payload() -> Result<Option<Vec<u8>>, WritingError> {
-    let total = block_extension::block_count();
-    if total <= BlockId::COUNT {
+pub fn extension_registry_sync_payload() -> Result<Option<Vec<u8>>, WritingError> {
+    let block_total = block_extension::block_count();
+    let blocks: Vec<(&'static str, u16)> = if block_total > BlockId::COUNT {
+        (0..block_total)
+            .filter_map(BlockId::registered)
+            .map(|id| (Block::from_id(id).name, id.as_u16()))
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    let item_total = item_extension::item_count();
+    let items: Vec<(&'static str, u16)> = if item_total > Item::VANILLA_COUNT {
+        (0..item_total)
+            .filter_map(Item::from_id)
+            .map(|item| (item.registry_key, item.id))
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    // Neither registry is OPTIONAL on a Fabric server: a client that cannot
+    // receive the map has no business holding modded content.
+    //
+    // Order: Fabric walks `BuiltInRegistries.REGISTRY.keySet()`, and the keys of
+    // a `MappedRegistry` live in a `java.util.HashMap`, so registries come in
+    // hash-bucket order — item before block on 26.3, as captured from a real
+    // Fabric server by the differential probe. The client reads the payload
+    // into an insertion-ordered map, so matching the order keeps it identical
+    // to what a Fabric client normally gets; the probe flags a mismatch when
+    // another registry joins.
+    let registries: Vec<SyncedRegistry<'_>> = [
+        ("minecraft:item", items.as_slice()),
+        ("minecraft:block", blocks.as_slice()),
+    ]
+    .into_iter()
+    .filter(|(_, entries)| !entries.is_empty())
+    .map(|(id, entries)| SyncedRegistry {
+        id,
+        optional: false,
+        entries,
+    })
+    .collect();
+
+    if registries.is_empty() {
         return Ok(None);
     }
-
-    let entries: Vec<(&'static str, u16)> = (0..total)
-        .filter_map(BlockId::registered)
-        .map(|id| (Block::from_id(id).name, id.as_u16()))
-        .collect();
-
-    // `minecraft:block` is not OPTIONAL on a Fabric server: a client that cannot
-    // receive the map has no business holding modded blocks. Worth confirming
-    // against a real Fabric server in the differential test.
-    let registries = [SyncedRegistry {
-        id: "minecraft:block",
-        optional: false,
-        entries: &entries,
-    }];
-
     registry_sync_payload(&registries).map(Some)
 }
 
