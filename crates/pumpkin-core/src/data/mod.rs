@@ -13,6 +13,7 @@ pub mod banned_ip;
 pub mod banned_player;
 pub mod block_extension;
 pub mod datapack;
+pub mod item_extension;
 pub mod player_server;
 pub mod usercache;
 pub mod whitelist;
