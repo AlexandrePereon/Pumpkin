@@ -1,4 +1,5 @@
-//! Loads blocks that are not in the generated vanilla set.
+//! Loads blocks that are not in the generated vanilla set, and starts the
+//! loading of items from the same dump (see [`super::item_extension`]).
 //!
 //! This is the link between a mod's content and `pumpkin_data::block_extension`.
 //! The client already knows the block from its own jar; the server needs a
@@ -78,6 +79,11 @@ impl LoadJSONConfiguration for BlockExtensionConfig {
 /// about them.
 pub fn load_and_install() {
     let config = BlockExtensionConfig::load();
+
+    // Items come from the same dump; they do not depend on the blocks.
+    if let Some(dir) = &config.extractor_dump {
+        super::item_extension::install_from_dump(dir);
+    }
 
     let entries = match &config.extractor_dump {
         Some(dir) => match from_dump(dir) {
