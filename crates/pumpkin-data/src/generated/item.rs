@@ -123919,6 +123919,8 @@ impl Item {
             ),
         ],
     };
+    #[doc = "Number of generated vanilla items. Their raw ids are `0..VANILLA_COUNT`; items from the runtime extension follow."]
+    pub const VANILLA_COUNT: u16 = 1658;
     #[must_use]
     #[allow(deprecated)]
     pub fn translated_name(&self) -> TextComponent {
@@ -125614,12 +125616,12 @@ impl Item {
             "zombie_spawn_egg" => Some(&Self::ZOMBIE_SPAWN_EGG),
             "zombie_villager_spawn_egg" => Some(&Self::ZOMBIE_VILLAGER_SPAWN_EGG),
             "zombified_piglin_spawn_egg" => Some(&Self::ZOMBIFIED_PIGLIN_SPAWN_EGG),
-            _ => None,
+            _ => crate::item_extension::item_by_name(name),
         }
     }
     #[doc = "Try to parse an item from a raw id."]
     #[must_use]
-    pub const fn from_id(id: u16) -> Option<&'static Self> {
+    pub fn from_id(id: u16) -> Option<&'static Self> {
         match id {
             1253 => Some(&Self::ABANDONED_CAMP_MAP),
             983 => Some(&Self::ACACIA_BOAT),
@@ -127279,7 +127281,7 @@ impl Item {
             1333 => Some(&Self::ZOMBIE_SPAWN_EGG),
             1336 => Some(&Self::ZOMBIE_VILLAGER_SPAWN_EGG),
             1363 => Some(&Self::ZOMBIFIED_PIGLIN_SPAWN_EGG),
-            _ => None,
+            _ => crate::item_extension::item_by_raw_id(id),
         }
     }
 }
