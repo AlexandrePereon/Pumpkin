@@ -2,6 +2,7 @@ use crate::VarInt;
 use crate::codec::data_component::{DataComponentCodec, deserialize, serialize};
 use crate::ser::{NetworkReadExt, NetworkWriteExt, ReadingError, WritingError};
 use pumpkin_data::data_component::DataComponent;
+use pumpkin_data::data_component_extension;
 use pumpkin_data::data_component_impl::{
     CustomDataImpl, CustomNameImpl, DataComponentImpl, ItemNameImpl,
 };
@@ -27,8 +28,49 @@ fn item_component_counts(stack: &ItemStack) -> (u8, u8) {
             to_add += 1;
         }
     }
+    for (_, bytes) in &stack.opaque_patch {
+        if bytes.is_none() {
+            to_remove += 1;
+        } else {
+            to_add += 1;
+        }
+    }
 
     (to_add, to_remove)
+}
+
+/// Writes the added extension components of `stack`, after the vanilla ones.
+/// `length_prefixed` selects the delimited form some packets use.
+fn write_opaque_added(
+    stack: &ItemStack,
+    length_prefixed: bool,
+    write: &mut impl NetworkWriteExt,
+) -> Result<(), WritingError> {
+    for (id, bytes) in &stack.opaque_patch {
+        if let Some(bytes) = bytes {
+            write.put_var_int(&VarInt(i32::from(*id)))?;
+            if length_prefixed {
+                let len = i32::try_from(bytes.len())
+                    .map_err(|_| WritingError::Message("Component data too large".into()))?;
+                write.put_var_int(&VarInt(len))?;
+            }
+            write.write_slice(bytes)?;
+        }
+    }
+    Ok(())
+}
+
+/// Writes the ids of the removed extension components of `stack`.
+fn write_opaque_removed(
+    stack: &ItemStack,
+    write: &mut impl NetworkWriteExt,
+) -> Result<(), WritingError> {
+    for (id, bytes) in &stack.opaque_patch {
+        if bytes.is_none() {
+            write.put_var_int(&VarInt(i32::from(*id)))?;
+        }
+    }
+    Ok(())
 }
 
 fn serialize_item_stack_with_id(
@@ -53,12 +95,14 @@ fn serialize_item_stack_with_id(
                     serialize(*id, data.as_ref(), write)?;
                 }
             }
+            write_opaque_added(stack, false, write)?;
 
             for (id, data) in &stack.patch {
                 if data.is_none() {
                     write.put_var_int(&VarInt(i32::from(id.to_id())))?;
                 }
             }
+            write_opaque_removed(stack, write)?;
 
             Ok(())
         }
@@ -121,12 +165,14 @@ fn serialize_length_prefixed_item_stack_with_id(
                     write.write_slice(&comp_buf)?;
                 }
             }
+            write_opaque_added(stack, true, write)?;
 
             for (id, data) in &stack.patch {
                 if data.is_none() {
                     write.put_var_int(&VarInt(i32::from(id.to_id())))?;
                 }
             }
+            write_opaque_removed(stack, write)?;
 
             Ok(())
         }
@@ -161,8 +207,7 @@ fn serialize_item_cost_with_id(
     Ok(())
 }
 
-fn read_component_id(read: &mut impl NetworkReadExt) -> Result<DataComponent, ReadingError> {
-    let id_val = read.get_var_int()?.0;
+fn component_from_raw_id(id_val: i32) -> Result<DataComponent, ReadingError> {
     let id_u8 = id_val
         .try_into()
         .map_err(|_| ReadingError::Message(format!("Invalid component ID: {id_val}")))?;
@@ -226,10 +271,25 @@ fn decode_component(
     }
 }
 
+/// Reads a length-prefixed component value as raw bytes, for an extension type.
+fn read_length_prefixed_bytes(read: &mut impl NetworkReadExt) -> Result<Box<[u8]>, ReadingError> {
+    let byte_len: usize = read
+        .get_var_int()?
+        .0
+        .try_into()
+        .map_err(|_| ReadingError::Message("Negative component data length".into()))?;
+    if byte_len > crate::MAX_PACKET_DATA_SIZE {
+        return Err(ReadingError::TooLarge("Component data too large".into()));
+    }
+    let mut bytes = vec![0u8; byte_len];
+    read.read_bytes_to_buf(&mut bytes)?;
+    Ok(bytes.into_boxed_slice())
+}
+
 fn read_length_prefixed_component(
+    id: DataComponent,
     read: &mut impl NetworkReadExt,
 ) -> Result<(DataComponent, Box<dyn DataComponentImpl>), ReadingError> {
-    let id = read_component_id(read)?;
     let byte_len = read.get_var_int()?.0;
     let byte_len: usize = byte_len
         .try_into()
@@ -512,14 +572,28 @@ impl ItemStackSerializer<'_> {
         }
 
         let mut patch = Vec::with_capacity(total_components as usize);
+        let mut opaque_patch = Vec::new();
 
+        // Every value here is length-prefixed, so an extension component — whose
+        // format only the mod knows — can be kept as raw bytes instead of failing.
         for _ in 0..num_to_add {
-            let (id, component_impl) = read_length_prefixed_component(read)?;
-            patch.push((id, Some(component_impl)));
+            let raw_id = read.get_var_int()?.0;
+            if data_component_extension::is_extension(raw_id) {
+                opaque_patch.push((raw_id as u16, Some(read_length_prefixed_bytes(read)?)));
+            } else {
+                let (id, component_impl) =
+                    read_length_prefixed_component(component_from_raw_id(raw_id)?, read)?;
+                patch.push((id, Some(component_impl)));
+            }
         }
 
         for _ in 0..num_to_remove {
-            patch.push((read_component_id(read)?, None));
+            let raw_id = read.get_var_int()?.0;
+            if data_component_extension::is_extension(raw_id) {
+                opaque_patch.push((raw_id as u16, None));
+            } else {
+                patch.push((component_from_raw_id(raw_id)?, None));
+            }
         }
 
         let item_id_u16 = item_id
@@ -527,13 +601,13 @@ impl ItemStackSerializer<'_> {
             .try_into()
             .map_err(|_| ReadingError::Message("Invalid item id!".into()))?;
 
-        Ok(ItemStackSerializer(Cow::Owned(
-            ItemStack::new_with_component(
-                item_count_u8,
-                Item::from_id(item_id_u16).unwrap_or(&Item::AIR),
-                patch,
-            ),
-        )))
+        let mut stack = ItemStack::new_with_component(
+            item_count_u8,
+            Item::from_id(item_id_u16).unwrap_or(&Item::AIR),
+            patch,
+        );
+        stack.opaque_patch = opaque_patch;
+        Ok(ItemStackSerializer(Cow::Owned(stack)))
     }
 
     pub fn write_with_version(
@@ -766,6 +840,13 @@ impl OptionalItemStackHash {
                         to_add += 1;
                     }
                 }
+                for (_id, bytes) in &other.opaque_patch {
+                    if bytes.is_none() {
+                        to_remove += 1;
+                    } else {
+                        to_add += 1;
+                    }
+                }
                 (to_add, to_remove)
             };
             let (to_add, to_remove) = calc();
@@ -790,6 +871,19 @@ impl OptionalItemStackHash {
                     .removed
                     .contains(&VarInt::from(other_id.to_id()))
                 {
+                    return false;
+                }
+            }
+            // The server cannot compute the hash of a value it has no codec for,
+            // so an extension component only has to be present on both sides.
+            for (other_id, bytes) in &other.opaque_patch {
+                let id = VarInt(i32::from(*other_id));
+                let present = if bytes.is_some() {
+                    hash.components.added.iter().any(|(added, _)| added == &id)
+                } else {
+                    hash.components.removed.contains(&id)
+                };
+                if !present {
                     return false;
                 }
             }
@@ -852,5 +946,93 @@ impl From<Option<ItemStack>> for ItemStackOptionalTemplateSerializer<'_> {
             || ItemStackOptionalTemplateSerializer(Cow::Borrowed(ItemStack::EMPTY)),
             ItemStackOptionalTemplateSerializer::from,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ItemStackSerializer, OptionalItemStackHash};
+    use crate::VarInt;
+    use crate::ser::NetworkWriteExt;
+    use pumpkin_data::data_component_extension::{self, VANILLA_COUNT};
+    use pumpkin_data::item::Item;
+    use pumpkin_util::version::JavaMinecraftVersion;
+    use std::borrow::Cow;
+
+    fn var_int(out: &mut Vec<u8>, value: i32) {
+        out.put_var_int(&VarInt(value)).expect("writing to a Vec");
+    }
+
+    /// A stack whose patch sets one extension component to the single byte 5,
+    /// as `ItemStack.OPTIONAL_UNTRUSTED_STREAM_CODEC` frames it (delimited).
+    fn delimited_stack(component_id: u16) -> Vec<u8> {
+        let mut out = Vec::new();
+        var_int(&mut out, 1); // count
+        var_int(&mut out, i32::from(Item::STONE.id));
+        var_int(&mut out, 1); // components added
+        var_int(&mut out, 0); // components removed
+        var_int(&mut out, i32::from(component_id));
+        var_int(&mut out, 1); // value length
+        out.push(5); // value
+        out
+    }
+
+    /// One test for the module: the extension is a process-wide `OnceLock`.
+    #[test]
+    fn extension_components_round_trip_as_opaque_bytes() {
+        let id = VANILLA_COUNT;
+        let wire = delimited_stack(id);
+
+        // Before the type is installed, it is unknown and the read fails.
+        assert!(ItemStackSerializer::read_length_prefixed_optional(&mut wire.as_slice()).is_err());
+
+        data_component_extension::install(vec![(id, "pumpkinverse_test:charge")])
+            .expect("contiguous ids install");
+
+        let stack = ItemStackSerializer::read_length_prefixed_optional(&mut wire.as_slice())
+            .expect("an installed extension component is accepted")
+            .to_stack();
+        assert!(stack.patch.is_empty());
+        assert_eq!(
+            stack.opaque_patch,
+            vec![(id, Some(Box::from([5u8].as_slice())))]
+        );
+
+        let version = JavaMinecraftVersion::V_26_3;
+        let serializer = ItemStackSerializer(Cow::Borrowed(&stack));
+
+        // Delimited form: byte-identical to what the client sent.
+        let mut delimited = Vec::new();
+        serializer
+            .write_length_prefixed_with_version(&mut delimited, &version)
+            .expect("writing to a Vec");
+        assert_eq!(delimited, wire);
+
+        // Plain form (server to client): the same, without the value's length.
+        let mut plain = Vec::new();
+        serializer
+            .write_with_version(&mut plain, &version)
+            .expect("writing to a Vec");
+        let mut expected = Vec::new();
+        var_int(&mut expected, 1);
+        var_int(&mut expected, i32::from(Item::STONE.id));
+        var_int(&mut expected, 1);
+        var_int(&mut expected, 0);
+        var_int(&mut expected, i32::from(id));
+        expected.push(5);
+        assert_eq!(plain, expected);
+
+        // A hashed stack (container clicks) matches on presence alone.
+        let mut hashed = Vec::new();
+        hashed.push(1); // present
+        var_int(&mut hashed, i32::from(Item::STONE.id));
+        var_int(&mut hashed, 1); // count
+        var_int(&mut hashed, 1); // components added
+        var_int(&mut hashed, i32::from(id));
+        hashed.extend_from_slice(&0x1234_5678i32.to_be_bytes()); // any hash
+        var_int(&mut hashed, 0); // components removed
+        let hash = OptionalItemStackHash::read(&mut hashed.as_slice()).expect("valid hash");
+        assert!(hash.hash_equals(&stack));
+        assert!(!hash.hash_equals(&pumpkin_data::item_stack::ItemStack::new(1, &Item::STONE)));
     }
 }
