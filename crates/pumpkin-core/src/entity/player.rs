@@ -7134,9 +7134,9 @@ impl Player {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             let sync_id = screen_handler_temp.sync_id();
             let window_type = screen_handler_temp.window_type()?;
+            let menu_type_id = screen_handler_temp.menu_type_id()?;
 
-            let java_packet =
-                COpenScreen::new(sync_id.into(), (window_type as i32).into(), &display_name);
+            let java_packet = COpenScreen::new(sync_id.into(), menu_type_id.into(), &display_name);
 
             let block = block_pos.map(|pos| self.world().get_block(&pos));
             let bedrock_window_type = bedrock_container_type(Some(window_type), block);
@@ -7302,11 +7302,14 @@ impl Player {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let sync_id = screen_handler_temp.sync_id();
-        let Some(window_type) = screen_handler_temp.window_type() else {
+        let (Some(window_type), Some(menu_type_id)) = (
+            screen_handler_temp.window_type(),
+            screen_handler_temp.menu_type_id(),
+        ) else {
             return;
         };
 
-        let java_packet = COpenScreen::new(sync_id.into(), (window_type as i32).into(), title);
+        let java_packet = COpenScreen::new(sync_id.into(), menu_type_id.into(), title);
 
         let bedrock_window_type = bedrock_container_type(Some(window_type), None);
 
