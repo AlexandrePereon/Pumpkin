@@ -12,6 +12,8 @@
 //!
 //! The wire format mirrors `net.fabricmc.fabric.impl.registry.sync.packet.RegistrySyncPayload`.
 
+use pumpkin_data::data_component::DataComponent;
+use pumpkin_data::data_component_extension;
 use pumpkin_data::item::Item;
 use pumpkin_data::{Block, BlockId, block_extension, item_extension};
 use pumpkin_protocol::VarInt;
@@ -200,18 +202,36 @@ pub fn extension_registry_sync_payload() -> Result<Option<Vec<u8>>, WritingError
         Vec::new()
     };
 
-    // Neither registry is OPTIONAL on a Fabric server: a client that cannot
+    let component_total = data_component_extension::count();
+    let components: Vec<(&'static str, u16)> =
+        if component_total > data_component_extension::VANILLA_COUNT {
+            (0..component_total)
+                .filter_map(|id| {
+                    let name = u8::try_from(id)
+                        .ok()
+                        .and_then(DataComponent::try_from_id)
+                        .map(DataComponent::to_name)
+                        .or_else(|| data_component_extension::name_of(id))?;
+                    Some((name, id))
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+    // None of these registries is OPTIONAL on a Fabric server: a client that cannot
     // receive the map has no business holding modded content.
     //
     // Order: Fabric walks `BuiltInRegistries.REGISTRY.keySet()`, and the keys of
     // a `MappedRegistry` live in a `java.util.HashMap`, so registries come in
-    // hash-bucket order — item before block on 26.3, as captured from a real
+    // hash-bucket order — item, data_component_type, block on 26.3, as captured from a real
     // Fabric server by the differential probe. The client reads the payload
     // into an insertion-ordered map, so matching the order keeps it identical
     // to what a Fabric client normally gets; the probe flags a mismatch when
     // another registry joins.
     let registries: Vec<SyncedRegistry<'_>> = [
         ("minecraft:item", items.as_slice()),
+        ("minecraft:data_component_type", components.as_slice()),
         ("minecraft:block", blocks.as_slice()),
     ]
     .into_iter()
