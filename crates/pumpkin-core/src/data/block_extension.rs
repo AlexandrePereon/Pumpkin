@@ -82,6 +82,7 @@ pub fn load_and_install() {
 
     // Items come from the same dump; they do not depend on the blocks.
     if let Some(dir) = &config.extractor_dump {
+        super::item_extension::install_component_types_from_dump(dir);
         super::item_extension::install_from_dump(dir);
     }
 
