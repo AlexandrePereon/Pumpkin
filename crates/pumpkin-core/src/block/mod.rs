@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 pub mod blocks;
 pub mod entities;
+pub mod extension_behaviour;
 pub mod fluid;
 pub mod registry;
 pub mod viewer;
