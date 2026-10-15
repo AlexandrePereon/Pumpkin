@@ -15,6 +15,7 @@ use std::fs;
 use std::path::Path;
 
 use pumpkin_data::data_component::DataComponent;
+use pumpkin_data::data_component_extension;
 use pumpkin_data::data_component_impl::{DataComponentImpl, read_data};
 use pumpkin_data::item::Item;
 use pumpkin_data::item_extension;
@@ -28,6 +29,39 @@ use tracing::{info, warn};
 struct DumpItem {
     id: u16,
     components: BTreeMap<String, Value>,
+}
+
+/// Reads `data_component.json` from an Extractor dump and installs the
+/// component types a mod declared, so registry sync can name them and item
+/// stacks carrying them are not rejected.
+pub fn install_component_types_from_dump(dir: &Path) {
+    let path = dir.join("data_component.json");
+    let dump: BTreeMap<String, u16> = match fs::read_to_string(&path)
+        .map_err(|e| e.to_string())
+        .and_then(|text| serde_json::from_str(&text).map_err(|e| e.to_string()))
+    {
+        Ok(dump) => dump,
+        Err(error) => {
+            warn!("Could not load {}: {error}", path.display());
+            return;
+        }
+    };
+
+    let mut entries: Vec<(u16, &'static str)> = dump
+        .into_iter()
+        .filter(|(name, _)| !name.starts_with("minecraft:"))
+        .map(|(name, id)| (id, &*Box::leak(name.into_boxed_str())))
+        .collect();
+    if entries.is_empty() {
+        return;
+    }
+    entries.sort_unstable_by_key(|(id, _)| *id);
+
+    let count = entries.len();
+    match data_component_extension::install(entries) {
+        Ok(()) => info!("Installed {count} extension data component type(s)"),
+        Err(error) => warn!("Could not install the data component extension: {error}"),
+    }
 }
 
 /// Reads `items.json` from an Extractor dump and installs its non-vanilla items.
