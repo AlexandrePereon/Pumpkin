@@ -19,6 +19,8 @@ pumpkin-config.workspace = true
 pumpkin-data = { workspace = true, features = ["default"] }
 pumpkin-util.workspace = true
 pumpkin-world.workspace = true
+# Fork-only: the server-side logic of Pumpkin Verse's mods, kept outside the fork.
+verse-mods = { path = "../../../verse-mods" }
 
 rayon.workspace = true
 rustls.workspace = true
