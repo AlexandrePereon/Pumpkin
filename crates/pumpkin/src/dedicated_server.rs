@@ -116,6 +116,8 @@ pub async fn run(options: DedicatedServerOptions) {
     // Blocks outside the generated vanilla set have to exist before anything
     // reads block data, and well before a client is told about their ids.
     pumpkin_core::data::block_extension::load_and_install();
+    // Their behaviours, which resolve the blocks by name, come right after.
+    verse_mods::install();
 
     let plugin_loaders: Vec<Arc<dyn PluginLoader>> = vec![Arc::new(WasmPluginLoader::new(
         config.advanced.plugins.verify_signatures,
@@ -134,6 +136,8 @@ pub async fn run(options: DedicatedServerOptions) {
         tracing::error!("{error}");
         exit(1);
     });
+    // Fork-only: the mods' event handlers (custom channels), on the server's event bus.
+    verse_mods::on_server(&pumpkin_server.server);
     let plugin_wait_time = pumpkin_server.init_plugins().await;
 
     let time_elapsed = time.elapsed().saturating_sub(plugin_wait_time);
