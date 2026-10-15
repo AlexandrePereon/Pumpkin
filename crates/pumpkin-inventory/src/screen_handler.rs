@@ -268,6 +268,19 @@ pub trait ScreenHandler: Send + Sync {
         self.get_behaviour().window_type
     }
 
+    /// The menu type's raw id, as the Java client is told when the screen opens.
+    ///
+    /// The window type's own id, unless the behaviour carries a menu type from
+    /// outside the generated vanilla set: a screen that works like a vanilla one
+    /// (its window type drives the layout) but that the client knows under
+    /// another menu type.
+    fn menu_type_id(&self) -> Option<i32> {
+        let behaviour = self.get_behaviour();
+        behaviour
+            .menu_type_id
+            .or_else(|| behaviour.window_type.map(|window_type| window_type as i32))
+    }
+
     /// Returns this screen handler as an Any reference.
     fn as_any(&self) -> &dyn Any;
 
@@ -1301,6 +1314,9 @@ pub struct ScreenHandlerBehaviour {
     pub tracked_property_values: Vec<i32>,
     /// The window type for this container ( determines client UI).
     pub window_type: Option<WindowType>,
+    /// A menu type raw id outside the generated vanilla set, sent instead of
+    /// the window type's (see [`ScreenHandler::menu_type_id`]).
+    pub menu_type_id: Option<i32>,
     /// Slots selected during a drag operation (for multi-slot distribution).
     pub drag_slots: Vec<u32>,
     /// Whether players can grab items out of the inventory.
@@ -1342,6 +1358,7 @@ impl ScreenHandlerBehaviour {
             properties: Vec::new(),
             tracked_property_values: Vec::new(),
             window_type,
+            menu_type_id: None,
             drag_slots: Vec::new(),
             allow_grab_items: true,
             allow_put_items: true,
