@@ -20,6 +20,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use pumpkin_data::block_extension::{self, ExtensionBlock, PropertyDef};
+use pumpkin_data::block_properties::BLOCK_ENTITY_TYPES;
 use pumpkin_data::block_properties::{COLLISION_SHAPES, EnumVariants, NoteblockInstrument};
 use pumpkin_data::block_state::PistonBehavior;
 use pumpkin_data::{Block, BlockId, BlockState, BlockStateId};
@@ -27,6 +28,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
 use super::LoadJSONConfiguration;
+use crate::block::entities::extension as block_entity_extension;
 
 #[derive(Deserialize, Serialize, Default)]
 #[serde(default)]
@@ -84,11 +86,12 @@ pub fn load_and_install() {
     if let Some(dir) = &config.extractor_dump {
         super::item_extension::install_component_types_from_dump(dir);
         super::item_extension::install_from_dump(dir);
+        super::menu_extension::install_from_dump(dir);
     }
 
-    let entries = match &config.extractor_dump {
+    let (entries, block_entity_types) = match &config.extractor_dump {
         Some(dir) => match from_dump(dir) {
-            Ok(entries) => entries,
+            Ok(dumped) => dumped,
             Err(error) => {
                 warn!(
                     "Could not load the Extractor dump at {}: {error}",
@@ -97,8 +100,16 @@ pub fn load_and_install() {
                 return;
             }
         },
-        None => from_hand_written(&config.blocks),
+        None => (from_hand_written(&config.blocks), Vec::new()),
     };
+
+    if !block_entity_types.is_empty() {
+        let count = block_entity_types.len();
+        match block_entity_extension::install_types(block_entity_types) {
+            Ok(()) => info!("Installed {count} extension block entity type(s)"),
+            Err(error) => warn!("Could not install extension block entity types: {error}"),
+        }
+    }
 
     if entries.is_empty() {
         return;
@@ -117,6 +128,9 @@ pub fn load_and_install() {
 struct DumpBlocks {
     shapes: Vec<DumpShape>,
     blocks: Vec<DumpBlock>,
+    /// In raw-id order; vanilla names bare, any other namespace kept.
+    #[serde(default)]
+    block_entity_types: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -174,7 +188,9 @@ struct DumpProperty {
 ///
 /// Ids are taken from the dump rather than assigned here: they are what a real
 /// server with the same mods assigned, so they are what the client expects.
-fn from_dump(dir: &Path) -> Result<Vec<ExtensionBlock>, String> {
+/// The dump's extension blocks, and its extension block entity types in
+/// raw-id order.
+fn from_dump(dir: &Path) -> Result<(Vec<ExtensionBlock>, Vec<&'static str>), String> {
     let read =
         |file: &str| fs::read_to_string(dir.join(file)).map_err(|error| format!("{file}: {error}"));
     let blocks: DumpBlocks = serde_json::from_str(&read("blocks.json")?)
@@ -198,7 +214,20 @@ fn from_dump(dir: &Path) -> Result<Vec<ExtensionBlock>, String> {
             Err(error) => warn!("Block extension skipped {}: {error}", block.name),
         }
     }
-    Ok(entries)
+    Ok((entries, block_entity_types_from_dump(&blocks.block_entity_types)?))
+}
+
+/// The types after the vanilla ones. The vanilla prefix must match the
+/// generated list exactly, or every extension id would be off.
+fn block_entity_types_from_dump(names: &[String]) -> Result<Vec<&'static str>, String> {
+    let vanilla = BLOCK_ENTITY_TYPES.len();
+    if names.is_empty() {
+        return Ok(Vec::new());
+    }
+    if names.len() < vanilla || names[..vanilla] != BLOCK_ENTITY_TYPES[..] {
+        return Err("blocks.json: block_entity_types does not start with the vanilla types".into());
+    }
+    Ok(names[vanilla..].iter().map(|name| leak(name)).collect())
 }
 
 fn extension_from_dump(
