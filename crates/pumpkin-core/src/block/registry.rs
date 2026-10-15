@@ -1394,8 +1394,10 @@ impl BlockRegistry {
     #[must_use]
     pub fn get_pumpkin_block(&self, block: BlockId) -> Option<&Arc<dyn BlockBehaviour>> {
         // The table is sized to the generated vanilla set. A block from the
-        // runtime extension has no Rust behaviour registered, so it has none.
-        let idx = *self.block_indices.get(usize::from(block.as_u16()))?;
+        // runtime extension misses it and is looked up in its own table.
+        let Some(&idx) = self.block_indices.get(usize::from(block.as_u16())) else {
+            return super::extension_behaviour::get(block);
+        };
         if idx == NO_BEHAVIOUR {
             None
         } else {
