@@ -12,12 +12,15 @@
 //!
 //! The wire format mirrors `net.fabricmc.fabric.impl.registry.sync.packet.RegistrySyncPayload`.
 
+use pumpkin_data::block_properties::BLOCK_ENTITY_TYPES;
 use pumpkin_data::data_component::DataComponent;
 use pumpkin_data::data_component_extension;
 use pumpkin_data::item::Item;
 use pumpkin_data::{Block, BlockId, block_extension, item_extension};
 use pumpkin_protocol::VarInt;
 use pumpkin_protocol::ser::{NetworkWriteExt, WritingError};
+
+use crate::block::entities::extension as block_entity_extension;
 
 /// The plugin channel the payload travels on.
 pub const REGISTRY_SYNC_CHANNEL: &str = "fabric:registry/sync";
@@ -219,19 +222,40 @@ pub fn extension_registry_sync_payload() -> Result<Option<Vec<u8>>, WritingError
             Vec::new()
         };
 
+    let block_entity_total = block_entity_extension::count();
+    let vanilla_block_entities = BLOCK_ENTITY_TYPES.len();
+    let block_entities: Vec<(&'static str, u16)> =
+        if usize::from(block_entity_total) > vanilla_block_entities {
+            (0..block_entity_total)
+                .filter_map(|id| {
+                    let name = BLOCK_ENTITY_TYPES
+                        .get(usize::from(id))
+                        .copied()
+                        .or_else(|| block_entity_extension::name_of(id))?;
+                    Some((name, id))
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+    let menus = crate::data::menu_extension::registry_entries();
+
     // None of these registries is OPTIONAL on a Fabric server: a client that cannot
     // receive the map has no business holding modded content.
     //
     // Order: Fabric walks `BuiltInRegistries.REGISTRY.keySet()`, and the keys of
     // a `MappedRegistry` live in a `java.util.HashMap`, so registries come in
-    // hash-bucket order — item, data_component_type, block on 26.3, as captured from a real
-    // Fabric server by the differential probe. The client reads the payload
-    // into an insertion-ordered map, so matching the order keeps it identical
-    // to what a Fabric client normally gets; the probe flags a mismatch when
-    // another registry joins.
+    // hash-bucket order — item, block_entity_type, data_component_type, menu,
+    // block on 26.3, as captured from a real Fabric server by the differential probe. The
+    // client reads the payload into an insertion-ordered map, so matching the
+    // order keeps it identical to what a Fabric client normally gets; the probe
+    // flags a mismatch when another registry joins.
     let registries: Vec<SyncedRegistry<'_>> = [
         ("minecraft:item", items.as_slice()),
+        ("minecraft:block_entity_type", block_entities.as_slice()),
         ("minecraft:data_component_type", components.as_slice()),
+        ("minecraft:menu", menus.as_slice()),
         ("minecraft:block", blocks.as_slice()),
     ]
     .into_iter()
