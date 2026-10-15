@@ -42,6 +42,11 @@ pub struct ItemStack {
     pub item_count: u8,
     pub item: &'static Item,
     pub patch: Vec<(DataComponent, Option<Box<dyn DataComponentImpl>>)>,
+    /// Patch entries for component types from the runtime extension
+    /// ([`crate::data_component_extension`]): raw id, and the value exactly as
+    /// the client encoded it (`None` removes the component). The server has no
+    /// codec for these, so it keeps the bytes and sends them back unchanged.
+    pub opaque_patch: Vec<(u16, Option<Box<[u8]>>)>,
 
     // unique ID for Bedrock network; don't serialize
     // Should always be a positive value for non-empty stacks
@@ -109,6 +114,7 @@ impl ItemStack {
             item_count,
             item,
             patch: Vec::new(),
+            opaque_patch: Vec::new(),
 
             uid: ITEM_STACK_ID_GEN.next_id(),
         }
@@ -124,6 +130,7 @@ impl ItemStack {
             item_count,
             item,
             patch: component,
+            opaque_patch: Vec::new(),
 
             uid: ITEM_STACK_ID_GEN.next_id(),
         }
@@ -138,6 +145,7 @@ impl ItemStack {
             item_count,
             item,
             patch: Vec::new(),
+            opaque_patch: Vec::new(),
 
             uid: match NonZero::new(1) {
                 Some(v) => v,
@@ -193,6 +201,7 @@ impl ItemStack {
             item_count: count,
             item: target_item,
             patch: self.patch.clone(),
+            opaque_patch: self.opaque_patch.clone(),
             uid: ITEM_STACK_ID_GEN.next_id(),
         }
     }
@@ -323,6 +332,7 @@ impl ItemStack {
         item_count: 0,
         item: &Item::AIR,
         patch: Vec::new(),
+        opaque_patch: Vec::new(),
 
         uid: NonZero::<i32>::MIN, // white lie - Bedrock `uid` is never sent if the stack is empty
     };
@@ -842,7 +852,13 @@ impl ItemStack {
             return false;
         }
 
-        if self.patch.len() != other.patch.len() {
+        if self.patch.len() != other.patch.len()
+            || self.opaque_patch.len() != other.opaque_patch.len()
+            || !self
+                .opaque_patch
+                .iter()
+                .all(|entry| other.opaque_patch.contains(entry))
+        {
             return false;
         }
 
@@ -965,6 +981,22 @@ impl ItemStack {
                 tag.put(name.as_str(), NbtCompound::new());
             }
         }
+
+        // Extension components: the server has no codec for them, so their wire
+        // bytes are stored as-is. Not vanilla's save format, which encodes the
+        // value with the mod's own codec; only this server reads them back.
+        for (id, bytes) in &self.opaque_patch {
+            let Some(name) = crate::data_component_extension::name_of(*id) else {
+                continue;
+            };
+            match bytes {
+                Some(bytes) => tag.put(
+                    name,
+                    NbtTag::ByteArray(bytes.iter().map(|b| b.cast_signed()).collect()),
+                ),
+                None => tag.put(format!("!{name}").as_str(), NbtCompound::new()),
+            }
+        }
         compound.put_compound("components", tag);
         Some(compound)
     }
@@ -991,6 +1023,21 @@ impl ItemStack {
         // Process any additional data in the components compound
         if let Some(tag) = compound.get_compound("components") {
             for (name, data) in &tag.child_tags {
+                let removed = name.starts_with('!');
+                if let Some(id) =
+                    crate::data_component_extension::id_of(name.trim_start_matches('!'))
+                {
+                    let bytes = if removed {
+                        None
+                    } else {
+                        let NbtTag::ByteArray(bytes) = data else {
+                            return None;
+                        };
+                        Some(bytes.iter().map(|b| b.cast_unsigned()).collect())
+                    };
+                    item_stack.opaque_patch.push((id, bytes));
+                    continue;
+                }
                 if let Some(name) = name.strip_prefix("!") {
                     let id = DataComponent::try_from_name(name)?;
                     if id.is_persistent() {
