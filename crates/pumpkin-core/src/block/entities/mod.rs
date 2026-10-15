@@ -24,6 +24,7 @@ pub mod comparator;
 pub mod daylight_detector;
 pub mod dropper;
 pub mod end_portal;
+pub mod extension;
 pub mod ender_chest;
 pub mod furnace;
 pub mod furnace_like_block_entity;
@@ -102,15 +103,15 @@ pub trait BlockEntity: Any + Send + Sync {
         self.write_nbt(nbt);
     }
     fn get_id(&self) -> u32 {
-        let name = self
-            .resource_location()
-            .split(':')
-            .next_back()
-            .unwrap_or("");
+        let location = self.resource_location();
+        // Only `minecraft` is stripped: `mymod:chest` is not the vanilla chest.
+        let name = location.strip_prefix("minecraft:").unwrap_or(location);
         pumpkin_data::block_properties::BLOCK_ENTITY_TYPES
             .iter()
             .position(|block_entity_name| *block_entity_name == name)
-            .unwrap_or(0) as u32
+            .map(|id| id as u32)
+            .or_else(|| extension::id_of(location))
+            .unwrap_or(0)
     }
 
     /// Obtain NBT data for sending to the client in `ChunkData`
@@ -322,7 +323,7 @@ pub fn block_entity_from_nbt(nbt: &NbtCompound) -> Option<Arc<dyn BlockEntity>> 
         potent_sulfur::PotentSulfurBlockEntity::ID => Some(Arc::new(
             potent_sulfur::PotentSulfurBlockEntity::from_nbt(nbt, pos),
         )),
-        _ => None,
+        _ => extension::from_nbt(id, nbt, pos),
     }
 }
 
@@ -341,7 +342,9 @@ pub fn create_block_entity(
     if block_entity_type_id == u16::MAX {
         return None;
     }
-    let name = BLOCK_ENTITY_TYPES.get(block_entity_type_id as usize)?;
+    let Some(name) = BLOCK_ENTITY_TYPES.get(block_entity_type_id as usize) else {
+        return extension::create(block_entity_type_id, position);
+    };
     match *name {
         "furnace" => Some(Arc::new(furnace::FurnaceBlockEntity::new(position))),
         "chest" => Some(Arc::new(chest::ChestBlockEntity::new(position))),
