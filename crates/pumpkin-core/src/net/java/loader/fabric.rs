@@ -14,6 +14,7 @@
 
 use pumpkin_data::block_properties::BLOCK_ENTITY_TYPES;
 use pumpkin_data::data_component::DataComponent;
+use pumpkin_data::entity::EntityType;
 use pumpkin_data::data_component_extension;
 use pumpkin_data::item::Item;
 use pumpkin_data::{Block, BlockId, block_extension, item_extension};
@@ -241,13 +242,24 @@ pub fn extension_registry_sync_payload() -> Result<Option<Vec<u8>>, WritingError
 
     let menus = crate::data::menu_extension::registry_entries();
 
+    let entity_total = pumpkin_data::entity_type_extension::count();
+    let entity_types: Vec<(&'static str, u16)> =
+        if entity_total > pumpkin_data::entity_type_extension::vanilla_count() {
+            (0..entity_total)
+                .filter_map(EntityType::from_raw)
+                .map(|entity_type| (entity_type.resource_name, entity_type.id))
+                .collect()
+        } else {
+            Vec::new()
+        };
+
     // None of these registries is OPTIONAL on a Fabric server: a client that cannot
     // receive the map has no business holding modded content.
     //
     // Order: Fabric walks `BuiltInRegistries.REGISTRY.keySet()`, and the keys of
     // a `MappedRegistry` live in a `java.util.HashMap`, so registries come in
-    // hash-bucket order — item, block_entity_type, data_component_type, menu,
-    // block on 26.3, as captured from a real Fabric server by the differential probe. The
+    // hash-bucket order — item, block_entity_type, data_component_type,
+    // entity_type, menu, block on 26.3, as captured from a real Fabric server by the differential probe. The
     // client reads the payload into an insertion-ordered map, so matching the
     // order keeps it identical to what a Fabric client normally gets; the probe
     // flags a mismatch when another registry joins.
@@ -255,6 +267,7 @@ pub fn extension_registry_sync_payload() -> Result<Option<Vec<u8>>, WritingError
         ("minecraft:item", items.as_slice()),
         ("minecraft:block_entity_type", block_entities.as_slice()),
         ("minecraft:data_component_type", components.as_slice()),
+        ("minecraft:entity_type", entity_types.as_slice()),
         ("minecraft:menu", menus.as_slice()),
         ("minecraft:block", blocks.as_slice()),
     ]
