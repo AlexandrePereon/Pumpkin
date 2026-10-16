@@ -16,6 +16,7 @@ pub mod datapack;
 pub mod entity_extension;
 pub mod item_extension;
 pub mod menu_extension;
+pub mod name_list_extension;
 pub mod player_server;
 pub mod usercache;
 pub mod whitelist;

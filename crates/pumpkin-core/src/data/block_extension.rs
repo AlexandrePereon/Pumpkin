@@ -87,6 +87,8 @@ pub fn load_and_install() {
         super::item_extension::install_component_types_from_dump(dir);
         super::item_extension::install_from_dump(dir);
         super::menu_extension::install_from_dump(dir);
+        super::name_list_extension::SOUND_EVENTS.install_from_dump(dir);
+        super::name_list_extension::PARTICLE_TYPES.install_from_dump(dir);
         super::entity_extension::install_from_dump(dir);
     }
 
