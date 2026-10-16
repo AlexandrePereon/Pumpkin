@@ -348,7 +348,9 @@ pub fn from_type(
         }
         // Fallback Entity
         _ => {
-            if entity_type.attributes.is_empty() {
+            if let Some(factory) = super::extension::factory(entity_type) {
+                factory(entity)
+            } else if entity_type.attributes.is_empty() {
                 Arc::new(entity)
             } else {
                 Arc::new(LivingEntity::new(entity))

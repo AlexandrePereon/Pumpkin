@@ -84,6 +84,7 @@ pub mod custom_sound;
 pub mod decoration;
 pub mod effect;
 pub mod experience_orb;
+pub mod extension;
 pub mod falling;
 pub mod hunger;
 pub mod interaction;
@@ -4918,9 +4919,15 @@ impl Entity {
 impl Entity {
     pub fn write_nbt(&self, nbt: &mut NbtCompound) {
         let position = self.pos.load();
+        // Vanilla names are bare; an extension type's name carries its namespace.
+        let name = self.entity_type.resource_name;
         nbt.put_string(
             "id",
-            format!("minecraft:{}", self.entity_type.resource_name),
+            if name.contains(':') {
+                name.to_string()
+            } else {
+                format!("minecraft:{name}")
+            },
         );
         nbt.put_uuid("UUID", self.entity_uuid);
         let (x, z) = self
