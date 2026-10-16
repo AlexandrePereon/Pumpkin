@@ -87,6 +87,7 @@ pub fn load_and_install() {
         super::item_extension::install_component_types_from_dump(dir);
         super::item_extension::install_from_dump(dir);
         super::menu_extension::install_from_dump(dir);
+        super::entity_extension::install_from_dump(dir);
     }
 
     let (entries, block_entity_types) = match &config.extractor_dump {
