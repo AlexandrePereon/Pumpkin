@@ -300,10 +300,14 @@ impl EntitySelectorOption {
                 }
                 let string = parser.reader.string()[type_start..parser.reader.cursor()].to_string();
 
-                let entity_type = Identifier::parse(&string)
-                    .ok()
-                    .filter(|identifier| identifier.namespace() == VANILLA_NAMESPACE)
-                    .and_then(|identifier| EntityType::from_name(identifier.path()));
+                // A vanilla type by path, any other by its full name.
+                let entity_type = Identifier::parse(&string).ok().and_then(|identifier| {
+                    if identifier.namespace() == VANILLA_NAMESPACE {
+                        EntityType::from_name(identifier.path())
+                    } else {
+                        EntityType::from_name(&identifier.to_string())
+                    }
+                });
 
                 if let Some(entity_type) = entity_type {
                     if entity_type.id == EntityType::PLAYER.id && !invert {
