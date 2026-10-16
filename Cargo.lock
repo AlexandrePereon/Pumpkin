@@ -5216,6 +5216,7 @@ dependencies = [
  "pumpkin-data",
  "pumpkin-inventory",
  "pumpkin-nbt",
+ "pumpkin-protocol",
  "pumpkin-util",
  "pumpkin-world",
  "tracing",
