@@ -8531,7 +8531,9 @@ impl EntityType {
         &Self::ZOMBIE_VILLAGER,
         &Self::ZOMBIFIED_PIGLIN,
     ];
-    pub const fn from_raw(id: u16) -> Option<&'static Self> {
+    #[doc = r" Ids past the generated range resolve through"]
+    #[doc = r" [`crate::entity_type_extension`]."]
+    pub fn from_raw(id: u16) -> Option<&'static Self> {
         match id {
             0 => Some(&Self::ACACIA_BOAT),
             1 => Some(&Self::ACACIA_CHEST_BOAT),
@@ -8694,9 +8696,11 @@ impl EntityType {
             156 => Some(&Self::ZOMBIE_NAUTILUS),
             157 => Some(&Self::ZOMBIE_VILLAGER),
             158 => Some(&Self::ZOMBIFIED_PIGLIN),
-            _ => None,
+            _ => crate::entity_type_extension::by_raw(id),
         }
     }
+    #[doc = r" Names the generated match misses resolve through"]
+    #[doc = r" [`crate::entity_type_extension`], by their full `namespace:path`."]
     pub fn from_name(name: &str) -> Option<&'static Self> {
         let name = name.strip_prefix("minecraft:").unwrap_or(name);
         match name {
@@ -8861,7 +8865,7 @@ impl EntityType {
             "zombie_nautilus" => Some(&Self::ZOMBIE_NAUTILUS),
             "zombie_villager" => Some(&Self::ZOMBIE_VILLAGER),
             "zombified_piglin" => Some(&Self::ZOMBIFIED_PIGLIN),
-            _ => None,
+            _ => crate::entity_type_extension::by_name(name),
         }
     }
     #[must_use]
