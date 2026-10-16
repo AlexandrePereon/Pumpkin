@@ -90,7 +90,11 @@ static ERROR_NOT_SUMMONABLE_ENTITY: CommandErrorType<1> = CommandErrorType::new(
 
 pub static ENTITY_TYPE_ARGUMENT: ResourceArgument =
     ResourceArgument(ENTITY_TYPE_REGISTRY, &|id: Identifier| {
-        EntityType::from_name(id.path()).map(|value| value as &'static (dyn Any + Send + Sync))
+        // A type outside `minecraft` is known by its full name only.
+        EntityType::from_name(id.path())
+            .filter(|_| id.namespace() == "minecraft")
+            .or_else(|| EntityType::from_name(&id.to_string()))
+            .map(|value| value as &'static (dyn Any + Send + Sync))
     });
 
 pub static ENCHANTMENT_ARGUMENT: ResourceArgument =
