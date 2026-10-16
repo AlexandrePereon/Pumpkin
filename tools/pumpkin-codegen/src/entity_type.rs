@@ -432,18 +432,22 @@ pub fn build() -> TokenStream {
 
             pub const ALL: &'static [&'static Self] = &[#all_variants];
 
-            pub const fn from_raw(id: u16) -> Option<&'static Self> {
+            /// Ids past the generated range resolve through
+            /// [`crate::entity_type_extension`].
+            pub fn from_raw(id: u16) -> Option<&'static Self> {
                 match id {
                     #type_from_raw_id_arms
-                    _ => None
+                    _ => crate::entity_type_extension::by_raw(id)
                 }
             }
 
+            /// Names the generated match misses resolve through
+            /// [`crate::entity_type_extension`], by their full `namespace:path`.
             pub fn from_name(name: &str) -> Option<&'static Self> {
                 let name = name.strip_prefix("minecraft:").unwrap_or(name);
                 match name {
                     #type_from_name
-                    _ => None
+                    _ => crate::entity_type_extension::by_name(name)
                 }
             }
 
