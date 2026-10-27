@@ -1,7 +1,16 @@
+use pumpkin_data::item_stack::ItemStack;
 use pumpkin_protocol::codec::recipe::DynamicRecipe;
+
+use super::recipes::RecipeInputInventory;
 
 pub trait RecipeProvider: Send + Sync {
     fn get_dynamic_recipes(&self) -> Vec<DynamicRecipe>;
+
+    /// The result of a crafting recipe matched by code rather than described
+    /// by data, if one matches the grid. Consulted after the data recipes.
+    fn match_special_crafting(&self, _inventory: &dyn RecipeInputInventory) -> Option<ItemStack> {
+        None
+    }
 }
 
 #[derive(Clone, Copy)]
