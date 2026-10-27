@@ -176,6 +176,7 @@ pub mod entity_status;
 mod entity_type;
 
 #[cfg(feature = "entity_type")]
+pub mod attributes_extension;
 pub mod entity_type_extension;
 
 #[cfg(feature = "spawn_egg")]
