@@ -5,26 +5,28 @@
 //! built into an `EntityType` the way `pumpkin-codegen` builds vanilla ones and
 //! installed into `pumpkin_data::entity_type_extension`.
 //!
-//! Not yet handled, and skipped with a warning: attributes and hurt or death
-//! sounds — what a living entity has. Mapping them needs the attribute and
-//! sound tables by name.
+//! A living entity's attributes and hurt and death sounds are mapped by name
+//! onto Pumpkin's vanilla tables, as codegen does. A type naming an attribute
+//! or a sound outside them — a mod's own — cannot be expressed in an
+//! `EntityType` yet and is skipped with a warning.
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
 use pumpkin_data::entity::{EntityType, MobCategory, SpawnLocation, SpawnRestriction};
+use pumpkin_data::attributes::Attributes;
 use pumpkin_data::entity_type_extension;
+use pumpkin_data::sound::Sound;
 use pumpkin_util::HeightMap;
 use serde::Deserialize;
-use serde_json::Value;
 use tracing::{info, warn};
 
 #[derive(Deserialize)]
 struct DumpEntity {
     id: u16,
     #[serde(default)]
-    attributes: Option<Vec<Value>>,
+    attributes: Option<Vec<BTreeMap<String, f64>>>,
     #[serde(default)]
     experience_reward: Option<u32>,
     #[serde(default)]
@@ -99,18 +101,23 @@ pub fn install_from_dump(dir: &Path) {
 }
 
 fn build(name: &str, entity: &DumpEntity) -> Result<EntityType, String> {
-    if entity.attributes.as_ref().is_some_and(|a| !a.is_empty()) {
-        return Err("attributes are not supported yet".into());
-    }
-    if entity.hurt_sound.is_some() || entity.death_sound.is_some() {
-        return Err("entity sounds are not supported yet".into());
-    }
+    let attributes = entity
+        .attributes
+        .iter()
+        .flatten()
+        .flat_map(BTreeMap::iter)
+        .map(|(key, value)| Ok((attribute(key)?, *value)))
+        .collect::<Result<Vec<_>, String>>()?;
     Ok(EntityType {
         id: entity.id,
-        attributes: &[],
+        attributes: if attributes.is_empty() {
+            &[]
+        } else {
+            Box::leak(attributes.into_boxed_slice())
+        },
         experience_reward: entity.experience_reward.unwrap_or(0),
-        hurt_sound: None,
-        death_sound: None,
+        hurt_sound: entity.hurt_sound.as_deref().map(sound).transpose()?,
+        death_sound: entity.death_sound.as_deref().map(sound).transpose()?,
         attackable: entity.attackable,
         mob: entity.mob.unwrap_or(false),
         is_enemy: entity.is_enemy,
@@ -132,6 +139,21 @@ fn build(name: &str, entity: &DumpEntity) -> Result<EntityType, String> {
         },
         resource_name: Box::leak(name.to_owned().into_boxed_str()),
     })
+}
+
+/// A vanilla attribute by its dumped name, bare like codegen's input.
+fn attribute(key: &str) -> Result<Attributes, String> {
+    let full = format!("minecraft:{key}");
+    Attributes::ALL
+        .iter()
+        .find(|attribute| attribute.name == full)
+        .cloned()
+        .ok_or_else(|| format!("attribute {key} is not a vanilla one"))
+}
+
+/// A vanilla sound by its dumped name; a mod's own has a namespace and no `Sound`.
+fn sound(name: &str) -> Result<Sound, String> {
+    Sound::from_name(name).ok_or_else(|| format!("sound {name} is not a vanilla one"))
 }
 
 fn category(name: &str) -> Result<&'static MobCategory, String> {
