@@ -8,8 +8,9 @@
 //! A living entity's attributes and hurt and death sounds are mapped by name
 //! onto Pumpkin's vanilla tables, as codegen does. A hurt or death sound of a
 //! mod's own has no `Sound` variant: it is kept apart, by raw id, in a side
-//! table `LivingEntity` consults ([`hurt_sound_id`], [`death_sound_id`]). A
-//! type naming an attribute outside the vanilla set is skipped with a warning.
+//! table `LivingEntity` consults ([`hurt_sound_id`], [`death_sound_id`]). An
+//! attribute of a mod's own resolves through `attributes_extension`, which
+//! [`super::attribute_extension`] fills first.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -180,14 +181,12 @@ fn build(name: &str, entity: &DumpEntity) -> Result<(EntityType, ModSounds), Str
     Ok((entity_type, ModSounds { hurt, death }))
 }
 
-/// A vanilla attribute by its dumped name, bare like codegen's input.
+/// An attribute by its dumped name: vanilla bare, like codegen's input, or a
+/// mod's own with its namespace.
 fn attribute(key: &str) -> Result<Attributes, String> {
-    let full = format!("minecraft:{key}");
-    Attributes::ALL
-        .iter()
-        .find(|attribute| attribute.name == full)
+    pumpkin_data::attributes_extension::by_name(key)
         .cloned()
-        .ok_or_else(|| format!("attribute {key} is not a vanilla one"))
+        .ok_or_else(|| format!("attribute {key} is neither vanilla nor an installed extension one"))
 }
 
 /// A vanilla sound by its dumped name, or else a mod's own by raw id — it has
