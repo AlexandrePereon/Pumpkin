@@ -211,6 +211,20 @@ pub const fn entity_type_to_bedrock_identifier(entity_type: &EntityType) -> &'st
     }
 }
 
+/// An entity type's translation key, `entity.<namespace>.<path>`.
+///
+/// Built as vanilla's `Util.makeDescriptionId` builds it. Vanilla types are
+/// named bare here, so they keep `entity.minecraft.<name>`; a type of another
+/// namespace gets its own instead of a `minecraft` key no client has.
+#[must_use]
+pub fn translation_key(entity_type: &EntityType) -> String {
+    let (namespace, path) = entity_type
+        .resource_name
+        .split_once(':')
+        .unwrap_or(("minecraft", entity_type.resource_name));
+    format!("entity.{namespace}.{}", path.replace('/', "."))
+}
+
 pub trait EntityBase: Send + Sync + std::any::Any {
     fn write_nbt(&self, nbt: &mut NbtCompound) {
         self.get_entity().write_nbt(nbt);
@@ -1035,8 +1049,8 @@ pub trait EntityBase: Send + Sync + std::any::Any {
             .as_ref()
             .clone()
             .unwrap_or(TextComponent::translate_cross(
-                format!("entity.minecraft.{}", entity.entity_type.resource_name),
-                format!("entity.minecraft.{}", entity.entity_type.resource_name),
+                translation_key(entity.entity_type),
+                translation_key(entity.entity_type),
                 [],
             ))
     }
@@ -1051,8 +1065,8 @@ pub trait EntityBase: Send + Sync + std::any::Any {
                 .as_ref()
                 .clone()
                 .unwrap_or(TextComponent::translate_cross(
-                    format!("entity.minecraft.{}", entity.entity_type.resource_name),
-                    format!("entity.minecraft.{}", entity.entity_type.resource_name),
+                    translation_key(entity.entity_type),
+                    translation_key(entity.entity_type),
                     [],
                 ));
         let name_clone = name.clone();

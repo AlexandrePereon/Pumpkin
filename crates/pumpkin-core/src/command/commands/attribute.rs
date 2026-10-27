@@ -45,12 +45,15 @@ const NO_MODIFIER_ERROR: CommandErrorType<3> = CommandErrorType::new(
     translation::java::COMMANDS_ATTRIBUTE_FAILED_NO_MODIFIER,
 );
 
+/// Vanilla attributes are keyed `attribute.name.<path>`. A mod picks its
+/// attribute's key freely; `attribute.name.<namespace>.<path>` is the usual
+/// convention and the best guess without the mod's own value.
 fn attribute_translation_key(attribute: &Attributes) -> String {
-    let path = attribute
-        .name
-        .strip_prefix("minecraft:")
-        .unwrap_or(attribute.name);
-    format!("attribute.name.{path}")
+    match attribute.name.split_once(':') {
+        Some(("minecraft", path)) => format!("attribute.name.{path}"),
+        Some((namespace, path)) => format!("attribute.name.{namespace}.{path}"),
+        None => format!("attribute.name.{}", attribute.name),
+    }
 }
 
 struct GetExecutor {
