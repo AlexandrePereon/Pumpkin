@@ -1085,10 +1085,15 @@ impl ResultSlot {
     }
 
     fn refill_output(&self) -> ItemStack {
-        let result = self.match_recipe().map_or_else(
-            || ItemStack::EMPTY.clone(),
-            |matched| matched.to_item_stack(),
-        );
+        let result = self
+            .match_recipe()
+            .map(|matched| matched.to_item_stack())
+            .or_else(|| {
+                self.recipe_provider
+                    .as_ref()?
+                    .match_special_crafting(&*self.inventory)
+            })
+            .unwrap_or_else(|| ItemStack::EMPTY.clone());
         *self
             .result
             .lock()
@@ -1839,5 +1844,34 @@ mod tests {
         assert_eq!(repaired.get_damage(), max_dmg - expected_rem);
         assert_eq!(repaired.get_enchantment_level(sharpness), 0);
         assert_eq!(repaired.get_enchantment_level(binding_curse), 1);
+    }
+
+    /// Crafts a stick from a single dirt, which no data recipe does.
+    struct DirtToStick;
+
+    impl RecipeProvider for DirtToStick {
+        fn get_dynamic_recipes(&self) -> Vec<pumpkin_protocol::codec::recipe::DynamicRecipe> {
+            Vec::new()
+        }
+
+        fn match_special_crafting(&self, inventory: &dyn RecipeInputInventory) -> Option<ItemStack> {
+            (0..inventory.size())
+                .any(|slot| inventory.get_stack(slot).item == &Item::DIRT)
+                .then(|| ItemStack::new(1, &Item::STICK))
+        }
+    }
+
+    #[test]
+    fn result_slot_falls_back_to_special_crafting() {
+        let grid = Arc::new(CraftingInventory::new(2, 2));
+        let result = ResultSlot::new(grid.clone(), Some(Arc::new(DirtToStick)));
+        assert!(result.refill_output().is_empty());
+
+        grid.set_stack(0, ItemStack::new(1, &Item::DIRT));
+        assert_eq!(result.refill_output().item, &Item::STICK);
+
+        // Data recipes come first: an oak log still gives planks.
+        grid.set_stack(0, ItemStack::new(1, &Item::OAK_LOG));
+        assert_eq!(result.refill_output().item, &Item::OAK_PLANKS);
     }
 }
