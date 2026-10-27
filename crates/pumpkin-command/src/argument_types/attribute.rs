@@ -27,9 +27,8 @@ impl<S: crate::source::CommandSource> ArgumentType<S> for AttributeArgumentType 
         let identifier = Identifier::from_reader(reader)?;
         let ident_str = identifier.to_string();
 
-        let attr = Attributes::ALL
-            .iter()
-            .find(|a| a.name == ident_str)
+        // Vanilla or an installed extension attribute.
+        let attr = pumpkin_data::attributes_extension::by_name(&ident_str)
             .cloned()
             .ok_or_else(|| {
                 INVALID_ATTRIBUTE_ERROR_TYPE.create(reader, TextComponent::text(ident_str))
@@ -50,7 +49,7 @@ impl<S: crate::source::CommandSource> ArgumentType<S> for AttributeArgumentType 
         builder: SuggestionsBuilder,
     ) -> Suggestions {
         builder
-            .filter_and_suggest_iter(Attributes::ALL.iter().map(|a| a.name))
+            .filter_and_suggest_iter(pumpkin_data::attributes_extension::all().map(|a| a.name))
             .build()
     }
 }

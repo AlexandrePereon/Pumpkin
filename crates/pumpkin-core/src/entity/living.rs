@@ -4338,7 +4338,7 @@ fn random_teleport_coordinate(center: f64, diameter: f32, random: f64) -> f64 {
 }
 
 pub(crate) fn attributes_by_id(id: u8) -> Option<&'static Attributes> {
-    Attributes::ALL.iter().find(|attr| attr.id == id)
+    pumpkin_data::attributes_extension::by_id(id)
 }
 
 fn push_unique_attribute(touched: &mut Vec<Attributes>, attr: &Attributes) {
