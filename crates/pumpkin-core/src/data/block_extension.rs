@@ -24,6 +24,7 @@ use pumpkin_data::block_properties::BLOCK_ENTITY_TYPES;
 use pumpkin_data::block_properties::{COLLISION_SHAPES, EnumVariants, NoteblockInstrument};
 use pumpkin_data::block_state::PistonBehavior;
 use pumpkin_data::{Block, BlockId, BlockState, BlockStateId};
+use pumpkin_util::math::{boundingbox::BoundingBox, vector3::Vector3};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
@@ -208,13 +209,15 @@ fn from_dump(dir: &Path) -> Result<(Vec<ExtensionBlock>, Vec<&'static str>), Str
     let properties: BTreeMap<i64, &DumpProperty> =
         properties.iter().map(|p| (p.hash_key, p)).collect();
 
+    install_shapes(&blocks.shapes)?;
+
     let mut entries = Vec::new();
     for block in &blocks.blocks {
         // The Extractor writes vanilla names bare and keeps every other namespace.
         if !block.name.contains(':') {
             continue;
         }
-        match extension_from_dump(block, &properties, &blocks.shapes) {
+        match extension_from_dump(block, &properties) {
             Ok(entry) => entries.push(entry),
             Err(error) => warn!("Block extension skipped {}: {error}", block.name),
         }
@@ -238,7 +241,6 @@ fn block_entity_types_from_dump(names: &[String]) -> Result<Vec<&'static str>, S
 fn extension_from_dump(
     block: &DumpBlock,
     properties: &BTreeMap<i64, &DumpProperty>,
-    shapes: &[DumpShape],
 ) -> Result<ExtensionBlock, String> {
     let mut defs = Vec::with_capacity(block.properties.len());
     for hash in &block.properties {
@@ -264,8 +266,8 @@ fn extension_from_dump(
             piston_behavior: piston_behavior(&state.piston_behavior)
                 .ok_or_else(|| format!("unknown piston behaviour {}", state.piston_behavior))?,
             hardness: state.hardness,
-            collision_shapes: shape_indices(&state.collision_shapes, shapes)?,
-            outline_shapes: shape_indices(&state.outline_shapes, shapes)?,
+            collision_shapes: shape_indices(&state.collision_shapes)?,
+            outline_shapes: shape_indices(&state.outline_shapes)?,
             opacity: state.opacity,
             block_entity_type: state.block_entity_type.unwrap_or(u16::MAX),
         });
@@ -323,25 +325,46 @@ fn property_values(property: &DumpProperty) -> Result<Vec<String>, String> {
     }
 }
 
-/// Maps dump shape indices onto Pumpkin's shape table.
+/// Installs the dump's shapes that Pumpkin's generated table lacks.
 ///
-/// The two tables are built the same way, so vanilla shapes share indices. A
-/// mod's new shapes would not exist in Pumpkin's table, which is a static
-/// array, so any index whose shape differs is rejected rather than mapped to
-/// the wrong box.
-fn shape_indices(indices: &[u16], shapes: &[DumpShape]) -> Result<&'static [u16], String> {
-    for &index in indices {
-        let dump = shapes
-            .get(usize::from(index))
-            .ok_or_else(|| format!("shape {index} is missing from the dump"))?;
-        let ours = COLLISION_SHAPES
-            .get(usize::from(index))
-            .ok_or_else(|| format!("shape {index} is not in Pumpkin's shape table"))?;
-        let same = [ours.min.x, ours.min.y, ours.min.z] == dump.min
-            && [ours.max.x, ours.max.y, ours.max.z] == dump.max;
-        if !same {
-            return Err(format!("shape {index} differs from Pumpkin's shape table"));
-        }
+/// The Extractor numbers boxes the way Pumpkin's table was built, in registry
+/// order without repeats, so vanilla's boxes come first at the same indices
+/// and a mod's new boxes follow. The vanilla prefix must match exactly, or
+/// every index after a difference would name the wrong box.
+fn install_shapes(shapes: &[DumpShape]) -> Result<(), String> {
+    let vanilla = COLLISION_SHAPES.len();
+    let prefix_matches = shapes.len() >= vanilla
+        && COLLISION_SHAPES.iter().zip(shapes).all(|(ours, dump)| {
+            [ours.min.x, ours.min.y, ours.min.z] == dump.min
+                && [ours.max.x, ours.max.y, ours.max.z] == dump.max
+        });
+    if !prefix_matches {
+        return Err("blocks.json: shapes do not start with Pumpkin's shape table".into());
+    }
+
+    let extra: Vec<BoundingBox> = shapes[vanilla..]
+        .iter()
+        .map(|dump| {
+            let [x, y, z] = dump.min;
+            let [x2, y2, z2] = dump.max;
+            BoundingBox::new(Vector3::new(x, y, z), Vector3::new(x2, y2, z2))
+        })
+        .collect();
+    if extra.is_empty() {
+        return Ok(());
+    }
+    let count = extra.len();
+    block_extension::install_shapes(extra).map_err(|error| error.to_string())?;
+    info!("Installed {count} extension shape(s)");
+    Ok(())
+}
+
+/// Checks dump shape indices against the installed shape table, vanilla plus
+/// the dump's own boxes (see [`install_shapes`]).
+fn shape_indices(indices: &[u16]) -> Result<&'static [u16], String> {
+    let count = block_extension::shape_count();
+    if let Some(index) = indices.iter().find(|&&index| usize::from(index) >= count) {
+        return Err(format!("shape {index} is not in the shape table"));
     }
     Ok(Box::leak(indices.to_vec().into_boxed_slice()))
 }
