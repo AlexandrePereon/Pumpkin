@@ -282,15 +282,22 @@ impl LivingEntity {
         );
     }
 
-    fn make_voice_sound(&self, caller: &dyn EntityBase, sound: Sound) {
+    /// Plays a hurt or death sound by raw id, so that a mod entity type's own
+    /// sound (outside `Sound`, see `data::entity_extension`) can be played too.
+    fn make_voice_sound(&self, caller: &dyn EntityBase, sound: u16) {
+        if self.entity.is_silent() {
+            return;
+        }
         let custom_sound = caller.get_mob().and_then(|mob| mob.as_custom_sound());
-        self.make_sound(
+        self.entity.world.load().play_sound_raw(
             sound,
             custom_sound.map_or(
                 SoundCategory::Players,
                 super::custom_sound::CustomSound::sound_category,
             ),
+            &self.entity.pos.load(),
             custom_sound.map_or(1.0, super::custom_sound::CustomSound::sound_volume),
+            self.get_pitch(),
         );
     }
 
@@ -2955,24 +2962,33 @@ impl LivingEntity {
         self.entity.movement.load()
     }
 
-    fn death_sound(&self, entity: &dyn EntityBase) -> Sound {
+    /// The death sound's raw id: a mob's own choice, else a mod entity type's
+    /// own sound (outside `Sound`, see `data::entity_extension`), else the type's.
+    fn death_sound(&self, entity: &dyn EntityBase) -> u16 {
         if let Some(sound_source) = entity.get_mob().and_then(|x| x.as_custom_sound())
             && let Some(audio) = sound_source.death_sound()
         {
-            return audio;
+            return audio as u16;
+        }
+        if let Some(id) = crate::data::entity_extension::death_sound_id(self.entity.entity_type) {
+            return id;
         }
 
-        Self::death_sound_for_entity(self.entity.entity_type)
+        Self::death_sound_for_entity(self.entity.entity_type) as u16
     }
 
-    fn hurt_sound(&self, entity: &dyn EntityBase) -> Sound {
+    /// The hurt sound's raw id, chosen as [`Self::death_sound`]'s.
+    fn hurt_sound(&self, entity: &dyn EntityBase) -> u16 {
         if let Some(sound_source) = entity.get_mob().and_then(|x| x.as_custom_sound())
             && let Some(audio) = sound_source.hurt_sound()
         {
-            return audio;
+            return audio as u16;
+        }
+        if let Some(id) = crate::data::entity_extension::hurt_sound_id(self.entity.entity_type) {
+            return id;
         }
 
-        Self::hurt_sound_for_entity(self.entity.entity_type)
+        Self::hurt_sound_for_entity(self.entity.entity_type) as u16
     }
 }
 
