@@ -12,7 +12,9 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::OnceLock;
 
-use crate::block_properties::{BlockProperties, Property};
+use pumpkin_util::math::boundingbox::BoundingBox;
+
+use crate::block_properties::{BlockProperties, COLLISION_SHAPES, Property};
 use crate::{Block, BlockId, BlockState, BlockStateId};
 
 /// Why [`install`] rejected an extension.
@@ -20,6 +22,8 @@ use crate::{Block, BlockId, BlockState, BlockStateId};
 pub enum InstallError {
     /// An extension is already installed.
     AlreadyInstalled,
+    /// Extension shapes are already installed.
+    ShapesAlreadyInstalled,
     /// Raw block ids must continue the vanilla range without gaps.
     BlockIdNotContiguous { expected: u16, found: u16 },
     /// Block state ids must continue the vanilla range without gaps.
@@ -44,6 +48,7 @@ impl fmt::Display for InstallError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::AlreadyInstalled => write!(f, "a block extension is already installed"),
+            Self::ShapesAlreadyInstalled => write!(f, "extension shapes are already installed"),
             Self::BlockIdNotContiguous { expected, found } => {
                 write!(f, "expected block id {expected}, found {found}")
             }
@@ -425,6 +430,49 @@ pub(crate) fn extension_property(key: &str, value: &str) -> Option<Property> {
         })
 }
 
+/// Boxes appended to the generated shape table, indexed by
+/// `shape_index - COLLISION_SHAPES.len()`.
+static SHAPES: OnceLock<Vec<BoundingBox>> = OnceLock::new();
+
+/// Installs the boxes extension blocks use and vanilla has nowhere.
+///
+/// Their indices continue the generated table, as the Extractor numbers them:
+/// boxes in registry order, deduplicated, so vanilla's come first and keep
+/// their indices. A block state's shape indices may then point past the
+/// vanilla table. Install before any such state is read.
+///
+/// # Errors
+///
+/// Returns [`InstallError::ShapesAlreadyInstalled`] if called twice.
+pub fn install_shapes(shapes: Vec<BoundingBox>) -> Result<(), InstallError> {
+    SHAPES
+        .set(shapes)
+        .map_err(|_| InstallError::ShapesAlreadyInstalled)
+}
+
+/// Total number of shapes, vanilla plus extension.
+#[must_use]
+pub fn shape_count() -> usize {
+    COLLISION_SHAPES.len() + SHAPES.get().map_or(0, Vec::len)
+}
+
+/// The box at a shape index, vanilla or extension.
+#[inline]
+pub(crate) fn shape(index: u16) -> Option<BoundingBox> {
+    match COLLISION_SHAPES.get(usize::from(index)) {
+        Some(shape) => Some(*shape),
+        None => extension_shape(index),
+    }
+}
+
+// Off the vanilla hot path: only indices past the generated table get here.
+#[cold]
+#[inline(never)]
+fn extension_shape(index: u16) -> Option<BoundingBox> {
+    let index = usize::from(index).checked_sub(COLLISION_SHAPES.len())?;
+    SHAPES.get()?.get(index).copied()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{ExtensionBlock, PropertyDef, block_count, install, state_count};
@@ -657,5 +705,35 @@ mod tests {
             .is_err(),
             "installed twice"
         );
+    }
+
+    #[test]
+    fn extension_shapes_continue_the_vanilla_table() {
+        use super::{InstallError, install_shapes, shape, shape_count};
+        use crate::block_properties::COLLISION_SHAPES;
+        use pumpkin_util::math::{boundingbox::BoundingBox, vector3::Vector3};
+
+        let vanilla = COLLISION_SHAPES.len();
+        let first = u16::try_from(vanilla).unwrap();
+        // The pedestal from `testmod`, a box vanilla has nowhere.
+        let pedestal = BoundingBox::new(
+            Vector3::new(0.25, 0.0, 0.25),
+            Vector3::new(0.75, 0.8125, 0.75),
+        );
+
+        // `BoundingBox` has no `PartialEq`.
+        let corners = |b: Option<BoundingBox>| b.map(|b| (b.min, b.max));
+
+        assert!(shape(first).is_none());
+        install_shapes(vec![pedestal]).unwrap();
+        assert!(matches!(
+            install_shapes(Vec::new()),
+            Err(InstallError::ShapesAlreadyInstalled)
+        ));
+
+        assert_eq!(shape_count(), vanilla + 1);
+        assert_eq!(corners(shape(first)), corners(Some(pedestal)));
+        assert!(shape(first + 1).is_none());
+        assert_eq!(corners(shape(0)), corners(Some(COLLISION_SHAPES[0])));
     }
 }

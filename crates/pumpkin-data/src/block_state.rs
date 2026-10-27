@@ -1,6 +1,7 @@
 use pumpkin_util::math::{boundingbox::BoundingBox, position::BlockPos, vector3::Vector3};
 
-use crate::block_properties::{COLLISION_SHAPES, NoteblockInstrument, SOUND_TYPES};
+use crate::block_extension::shape;
+use crate::block_properties::{NoteblockInstrument, SOUND_TYPES};
 use crate::blocks::SuffocationPredicate;
 use crate::sound::Sound;
 use crate::tag::{self, Taggable};
@@ -227,9 +228,7 @@ impl BlockState {
     }
 
     pub fn get_block_collision_shapes(&self) -> impl Iterator<Item = BoundingBox> + '_ {
-        self.collision_shapes
-            .iter()
-            .map(|&id| COLLISION_SHAPES[id as usize])
+        self.collision_shapes.iter().filter_map(|&id| shape(id))
     }
 
     /// Returns block-local collision shapes with vanilla's coordinate-derived offset applied.
@@ -243,10 +242,7 @@ impl BlockState {
     }
 
     pub fn get_block_outline_shapes(&self) -> impl Iterator<Item = BoundingBox> + '_ {
-        let base_shapes = self
-            .outline_shapes
-            .iter()
-            .map(|&id| COLLISION_SHAPES[id as usize]);
+        let base_shapes = self.outline_shapes.iter().filter_map(|&id| shape(id));
 
         let water_shape = self
             .is_waterlogged()
@@ -264,7 +260,7 @@ impl BlockState {
         let base_shapes = self
             .outline_shapes
             .iter()
-            .map(move |&id| COLLISION_SHAPES[id as usize].shift(offset));
+            .filter_map(move |&id| shape(id).map(|shape| shape.shift(offset)));
 
         let water_shape = self
             .is_waterlogged()
