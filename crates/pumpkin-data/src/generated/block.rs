@@ -687,6 +687,8 @@ pub enum PropertyKey {
     VerticalDirection,
     Waterlogged,
     West,
+    #[doc = r" A property only an extension block has, by name."]
+    Extension(&'static str),
 }
 impl PropertyKey {
     #[must_use]
@@ -787,6 +789,7 @@ impl PropertyKey {
             Self::VerticalDirection => "vertical_direction",
             Self::Waterlogged => "waterlogged",
             Self::West => "west",
+            Self::Extension(name) => name,
         }
     }
     #[must_use]
@@ -1008,6 +1011,11 @@ pub enum Property {
     West(bool),
     WestRedstone(WestRedstone),
     WestWall(WestWall),
+    #[doc = r" A name or value no vanilla block has, as an extension block declares it."]
+    Extension {
+        key: &'static str,
+        value: &'static str,
+    },
 }
 impl Property {
     #[must_use]
@@ -1122,6 +1130,7 @@ impl Property {
             Self::West(_) => PropertyKey::West,
             Self::WestRedstone(_) => PropertyKey::West,
             Self::WestWall(_) => PropertyKey::West,
+            Self::Extension { key, .. } => PropertyKey::Extension(key),
         }
     }
     #[must_use]
@@ -1676,6 +1685,7 @@ impl Property {
             }
             Self::WestRedstone(v) => v.to_value(),
             Self::WestWall(v) => v.to_value(),
+            Self::Extension { value, .. } => value,
         }
     }
     #[must_use]
@@ -2220,11 +2230,14 @@ impl Property {
                 "tall" => Some(Self::WestWall(WestWall::Tall)),
                 _ => None,
             },
+            PropertyKey::Extension(_) => None,
         }
     }
     #[must_use]
     pub fn from_str_pair(key: &str, value: &str) -> Option<Self> {
-        PropertyKey::from_str(key).and_then(|k| Self::from_key_value_str(k, value))
+        PropertyKey::from_str(key)
+            .and_then(|k| Self::from_key_value_str(k, value))
+            .or_else(|| crate::block_extension::extension_property(key, value))
     }
     #[must_use]
     pub fn matches_property(self, other: Self) -> bool {
@@ -638866,7 +638879,7 @@ impl Block {
             BlockId::CACTUS | BlockId::SUGAR_CANE => {
                 Box::new(CactusLikeProperties::from_state_id(state_id))
             }
-            _ => return None,
+            _ => return crate::block_extension::properties_of(self, state_id),
         })
     }
     #[track_caller]
@@ -639853,7 +639866,10 @@ impl Block {
             BlockId::CACTUS | BlockId::SUGAR_CANE => {
                 Box::new(CactusLikeProperties::from_props(props, self))
             }
-            _ => panic!("Invalid props"),
+            _ => match crate::block_extension::properties_from(self, props) {
+                Some(properties) => properties,
+                None => panic!("Invalid props"),
+            },
         }
     }
 }

@@ -1647,14 +1647,17 @@ pub fn build() -> TokenStream {
 
         #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
         pub enum PropertyKey {
-            #(#property_key_variants),*
+            #(#property_key_variants,)*
+            /// A property only an extension block has, by name.
+            Extension(&'static str),
         }
 
         impl PropertyKey {
             #[must_use]
             pub const fn to_str(self) -> &'static str {
                 match self {
-                    #(Self::#property_key_variants => #property_key_literals),*
+                    #(Self::#property_key_variants => #property_key_literals,)*
+                    Self::Extension(name) => name,
                 }
             }
 
@@ -1676,7 +1679,9 @@ pub fn build() -> TokenStream {
 
         #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
         pub enum Property {
-            #(#property_enum_variants),*
+            #(#property_enum_variants,)*
+            /// A name or value no vanilla block has, as an extension block declares it.
+            Extension { key: &'static str, value: &'static str },
         }
 
         impl Property {
@@ -1684,6 +1689,7 @@ pub fn build() -> TokenStream {
             pub const fn key(self) -> PropertyKey {
                 match self {
                     #(#property_key_arms)*
+                    Self::Extension { key, .. } => PropertyKey::Extension(key),
                 }
             }
 
@@ -1701,6 +1707,7 @@ pub fn build() -> TokenStream {
                 ];
                 match self {
                     #(#property_value_str_arms)*
+                    Self::Extension { value, .. } => value,
                 }
             }
 
@@ -1716,12 +1723,16 @@ pub fn build() -> TokenStream {
             pub fn from_key_value_str(key: PropertyKey, value: &str) -> Option<Self> {
                 match key {
                     #(#property_from_key_value_str_arms)*
+                    PropertyKey::Extension(_) => None,
                 }
             }
 
             #[must_use]
             pub fn from_str_pair(key: &str, value: &str) -> Option<Self> {
-                PropertyKey::from_str(key).and_then(|k| Self::from_key_value_str(k, value))
+                PropertyKey::from_str(key)
+                    .and_then(|k| Self::from_key_value_str(k, value))
+                    // Not a vanilla pair: one an installed extension block declares, if any.
+                    .or_else(|| crate::block_extension::extension_property(key, value))
             }
 
             #[must_use]
@@ -1946,7 +1957,8 @@ pub fn build() -> TokenStream {
             pub fn properties(&self, state_id: BlockStateId) -> Option<Box<dyn BlockProperties>> {
                 Some(match self.id {
                     #(#block_properties_from_state_and_block_id_arms)*
-                    _ => return None,
+                    // Not a generated layout: an extension block, or none at all.
+                    _ => return crate::block_extension::properties_of(self, state_id),
                 })
             }
 
@@ -1955,7 +1967,10 @@ pub fn build() -> TokenStream {
             pub fn from_properties(&self, props: &[Property]) -> Box<dyn BlockProperties> {
                 match self.id {
                     #(#block_properties_from_props_and_name_arms)*
-                    _ => panic!("Invalid props")
+                    _ => match crate::block_extension::properties_from(self, props) {
+                        Some(properties) => properties,
+                        None => panic!("Invalid props"),
+                    },
                 }
             }
         }
