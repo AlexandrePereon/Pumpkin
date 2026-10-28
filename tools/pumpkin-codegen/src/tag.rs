@@ -143,9 +143,13 @@ fn load_datapack_registry_ids(dir: &std::path::Path) -> BTreeMap<String, u16> {
     id_map
 }
 
-fn load_datapack_tags(
-    data_dir: &std::path::Path,
-) -> BTreeMap<String, BTreeMap<String, Vec<String>>> {
+/// Tags per category, flattened, and each tag's direct `#tag` references.
+type DatapackTags = (
+    BTreeMap<String, BTreeMap<String, Vec<String>>>,
+    BTreeMap<String, BTreeMap<String, Vec<String>>>,
+);
+
+fn load_datapack_tags(data_dir: &std::path::Path) -> DatapackTags {
     let mut raw_categories: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
 
     fn walk_namespace_tags(
@@ -234,6 +238,31 @@ fn load_datapack_tags(
         }
     }
 
+    // Direct references, kept for runtime tags: a datapack extending a tag
+    // must reach the tags that include it.
+    let mut includes: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
+    for (cat, tag_map) in &raw_categories {
+        for (tag_name, raw_values) in tag_map {
+            let refs: Vec<String> = raw_values
+                .iter()
+                .filter_map(|v| v.strip_prefix('#'))
+                .map(|sub| {
+                    if sub.contains(':') {
+                        sub.to_string()
+                    } else {
+                        format!("minecraft:{sub}")
+                    }
+                })
+                .collect();
+            if !refs.is_empty() {
+                includes
+                    .entry(cat.clone())
+                    .or_default()
+                    .insert(tag_name.clone(), refs);
+            }
+        }
+    }
+
     // Recursively resolve references for each category
     let mut resolved_categories: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
 
@@ -284,7 +313,7 @@ fn load_datapack_tags(
         resolved_categories.insert(cat.clone(), cat_resolved);
     }
 
-    resolved_categories
+    (resolved_categories, includes)
 }
 
 /// Generates the `TokenStream` for the `Tag` type, `RegistryKey` enum, tag
@@ -389,6 +418,8 @@ pub(crate) fn build() -> TokenStream {
 
     let mut latest_tag_modules = Vec::new();
     let mut latest_match_arms = Vec::new();
+    let mut include_maps = Vec::new();
+    let mut include_match_arms = Vec::new();
     let mut all_version_code = Vec::new();
     let mut version_fn_match_arms = Vec::new();
 
@@ -396,7 +427,7 @@ pub(crate) fn build() -> TokenStream {
         let datapack_data_dir = std::path::Path::new("../../assets/datapack/data");
         let datapack_base = datapack_data_dir.join("minecraft");
 
-        let tags = load_datapack_tags(&datapack_data_dir);
+        let (tags, includes) = load_datapack_tags(&datapack_data_dir);
         let is_latest = ver_folder == "26_3";
 
         let mut ver_cat_match_arms = Vec::new();
@@ -467,6 +498,22 @@ pub(crate) fn build() -> TokenStream {
                     };
                 });
                 latest_match_arms.push(quote! { RegistryKey::#key_pascal => &#dict_name });
+
+                if let Some(refs) = includes.get(&key) {
+                    let include_name =
+                        format_ident!("{}_INCLUDES", key.to_pascal_case().to_uppercase());
+                    let entries = refs
+                        .iter()
+                        .map(|(tag_name, refs)| quote! { #tag_name => &[#(#refs),*] });
+                    include_maps.push(quote! {
+                        static #include_name: phf::Map<&'static str, &'static [&'static str]> = phf::phf_map! {
+                            #(#entries),*
+                        };
+                    });
+                    include_match_arms.push(
+                        quote! { RegistryKey::#key_pascal => #include_name.get(tag).copied() },
+                    );
+                }
             } else {
                 all_version_code.push(quote! {
                     static #dict_name: phf::Map<&'static str, &'static Tag> = phf::phf_map! {
@@ -522,6 +569,20 @@ pub(crate) fn build() -> TokenStream {
 
         #(#all_version_code)*
 
+        #(#include_maps)*
+
+        /// The tags a vanilla tag names with `#`, before flattening; empty
+        /// when it names none.
+        #[must_use]
+        pub fn get_tag_includes(tag_category: RegistryKey, tag: &str) -> &'static [&'static str] {
+            #[allow(unreachable_patterns)]
+            let refs = match tag_category {
+                #(#include_match_arms,)*
+                _ => None,
+            };
+            refs.unwrap_or_default()
+        }
+
         #[must_use]
         pub const fn get_latest_map(key: RegistryKey) -> &'static phf::Map<&'static str, &'static Tag> {
             match key {
@@ -531,12 +592,19 @@ pub(crate) fn build() -> TokenStream {
 
         #[must_use]
         pub fn get_tag_values(tag_category: RegistryKey, tag: &str) -> Option<&'static [&'static str]> {
-            get_latest_map(tag_category).get(tag).map(|t| t.0)
+            get_tag(tag_category, tag).map(|t| t.0)
         }
 
         #[must_use]
         pub fn get_tag_ids(tag_category: RegistryKey, tag: &str) -> Option<&'static [u16]> {
-            get_latest_map(tag_category).get(tag).map(|t| t.1)
+            get_tag(tag_category, tag).map(|t| t.1)
+        }
+
+        /// A tag by name: as the datapacks left it, else vanilla's.
+        #[must_use]
+        pub fn get_tag(tag_category: RegistryKey, tag: &str) -> Option<&'static Tag> {
+            crate::tag_extension::tag(tag_category, tag)
+                .or_else(|| get_latest_map(tag_category).get(tag).copied())
         }
 
         #[must_use]
@@ -573,7 +641,8 @@ pub(crate) fn build() -> TokenStream {
 
             #[must_use]
             fn has_tag(&self, tag: &'static Tag) -> bool {
-                tag.1.contains(&self.registry_id())
+                let id = self.registry_id();
+                tag.1.contains(&id) || crate::tag_extension::gained(Self::tag_key(), tag.1, id)
             }
 
             #[must_use]

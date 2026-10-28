@@ -278,6 +278,9 @@ pub mod bedrock_biome;
 #[path = "generated/tag.rs"]
 pub mod tag;
 
+#[cfg(feature = "tag")]
+pub mod tag_extension;
+
 #[cfg(feature = "noise_router")]
 #[rustfmt::skip]
 #[path = "generated/noise_router.rs"]
