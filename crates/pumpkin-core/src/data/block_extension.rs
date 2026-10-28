@@ -90,6 +90,8 @@ pub fn load_and_install() {
         super::menu_extension::install_from_dump(dir);
         super::name_list_extension::SOUND_EVENTS.install_from_dump(dir);
         super::name_list_extension::PARTICLE_TYPES.install_from_dump(dir);
+        super::name_list_extension::CUSTOM_STATS.install_from_dump(dir);
+        super::name_list_extension::POI_TYPES.install_from_dump(dir);
         // Before entity types: their default attributes may name a mod's own.
         super::attribute_extension::install_from_dump(dir);
         super::entity_extension::install_from_dump(dir);

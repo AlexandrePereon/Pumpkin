@@ -1,10 +1,12 @@
 //! Registries whose Extractor dump is a plain list of names, extended at startup.
 //!
-//! Menu types (`screens.json`), sound events (`sounds.json`) and particle types
-//! (`particles.json`) are each dumped as a JSON array in raw-id order, vanilla
-//! names bare and any other namespace kept. Pumpkin's generated enums cover the
-//! vanilla prefix; what follows it belongs to mods, has to be dictated to Fabric
-//! clients (all three registries are synced), and is sent by raw id.
+//! Menu types (`screens.json`), sound events (`sounds.json`), particle types
+//! (`particles.json`), custom stats (`custom_stats.json`) and point of interest
+//! types (`poi_types.json`) are each dumped as a JSON array in raw-id order,
+//! vanilla names bare and any other namespace kept. Pumpkin's generated enums
+//! cover the vanilla prefix; what follows it belongs to mods, has to be
+//! dictated to Fabric clients (all these registries are synced), and is sent by
+//! raw id.
 
 use std::fs;
 use std::path::Path;
@@ -12,6 +14,7 @@ use std::sync::OnceLock;
 
 use pumpkin_data::particle::Particle;
 use pumpkin_data::sound::Sound;
+use pumpkin_data::statistic::CustomStatistic;
 use tracing::{info, warn};
 
 /// One name-list registry: its dump file, how many entries the generated
@@ -35,6 +38,18 @@ pub static PARTICLE_TYPES: NameListExtension = NameListExtension::new(
     "particle type",
     Particle::SulfurCubeGoo as usize + 1,
 );
+
+/// Custom stats beyond `pumpkin_data::statistic::CustomStatistic`.
+pub static CUSTOM_STATS: NameListExtension = NameListExtension::new(
+    "custom_stats.json",
+    "custom stat",
+    CustomStatistic::InteractWithSmithingTable as usize + 1,
+);
+
+/// Point of interest types. Pumpkin generates none; 26.3 has 21, from
+/// `armorer` to `lightning_rod`.
+pub static POI_TYPES: NameListExtension =
+    NameListExtension::new("poi_types.json", "point of interest type", 21);
 
 impl NameListExtension {
     #[must_use]
