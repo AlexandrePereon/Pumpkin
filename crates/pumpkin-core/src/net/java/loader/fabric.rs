@@ -244,6 +244,8 @@ pub fn extension_registry_sync_payload() -> Result<Option<Vec<u8>>, WritingError
     let attributes = crate::data::attribute_extension::registry_entries();
     let sound_events = crate::data::name_list_extension::SOUND_EVENTS.registry_entries();
     let particle_types = crate::data::name_list_extension::PARTICLE_TYPES.registry_entries();
+    let custom_stats = crate::data::name_list_extension::CUSTOM_STATS.registry_entries();
+    let poi_types = crate::data::name_list_extension::POI_TYPES.registry_entries();
 
     let entity_total = pumpkin_data::entity_type_extension::count();
     let entity_types: Vec<(&'static str, u16)> =
@@ -261,8 +263,9 @@ pub fn extension_registry_sync_payload() -> Result<Option<Vec<u8>>, WritingError
     //
     // Order: Fabric walks `BuiltInRegistries.REGISTRY.keySet()`, and the keys of
     // a `MappedRegistry` live in a `java.util.HashMap`, so registries come in
-    // hash-bucket order — item, block_entity_type, attribute, data_component_type,
-    // entity_type, menu, sound_event, particle_type, block on 26.3, as captured
+    // hash-bucket order — item, block_entity_type, custom_stat, attribute,
+    // data_component_type, point_of_interest_type, entity_type, menu,
+    // sound_event, particle_type, block on 26.3, as captured
     // from a real Fabric server by the differential probe. The
     // client reads the payload into an insertion-ordered map, so matching the
     // order keeps it identical to what a Fabric client normally gets; the probe
@@ -270,8 +273,10 @@ pub fn extension_registry_sync_payload() -> Result<Option<Vec<u8>>, WritingError
     let registries: Vec<SyncedRegistry<'_>> = [
         ("minecraft:item", items.as_slice()),
         ("minecraft:block_entity_type", block_entities.as_slice()),
+        ("minecraft:custom_stat", custom_stats.as_slice()),
         ("minecraft:attribute", attributes.as_slice()),
         ("minecraft:data_component_type", components.as_slice()),
+        ("minecraft:point_of_interest_type", poi_types.as_slice()),
         ("minecraft:entity_type", entity_types.as_slice()),
         ("minecraft:menu", menus.as_slice()),
         ("minecraft:sound_event", sound_events.as_slice()),
