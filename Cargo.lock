@@ -5220,6 +5220,7 @@ dependencies = [
  "pumpkin-util",
  "pumpkin-world",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
