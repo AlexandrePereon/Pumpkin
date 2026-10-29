@@ -56,7 +56,11 @@ fn normalize_id(id: &str) -> String {
 
 fn parse_ingredient(value: &Value) -> Option<OwnedRecipeIngredient> {
     match value {
-        Value::String(s) => Some(OwnedRecipeIngredient::Simple(normalize_id(s))),
+        // Since 1.21.2 a tag is written as a string too: `"#c:nuggets/gold"`.
+        Value::String(s) => Some(s.strip_prefix('#').map_or_else(
+            || OwnedRecipeIngredient::Simple(normalize_id(s)),
+            |tag| OwnedRecipeIngredient::Tagged(normalize_id(tag)),
+        )),
         Value::Object(map) => map
             .get("tag")
             .and_then(Value::as_str)
@@ -409,6 +413,14 @@ mod tests {
         } else {
             panic!("Expected shaped recipe");
         }
+    }
+
+    #[test]
+    fn tag_written_as_a_string() {
+        let tag = parse_ingredient(&Value::String("#c:nuggets/gold".to_string()));
+        assert!(matches!(tag, Some(OwnedRecipeIngredient::Tagged(t)) if t == "c:nuggets/gold"));
+        let item = parse_ingredient(&Value::String("paper".to_string()));
+        assert!(matches!(item, Some(OwnedRecipeIngredient::Simple(i)) if i == "minecraft:paper"));
     }
 
     #[test]
