@@ -1317,6 +1317,11 @@ pub struct ScreenHandlerBehaviour {
     /// A menu type raw id outside the generated vanilla set, sent instead of
     /// the window type's (see [`ScreenHandler::menu_type_id`]).
     pub menu_type_id: Option<i32>,
+    /// A custom payload (channel, data) that opens the screen on a Java
+    /// client in place of `OpenScreen`, for screens a mod loader opens its
+    /// own way (Fabric API's extended menus: `fabric-menu-api-v1:open_screen`).
+    /// The data carries the container id, so it is built with the handler.
+    pub java_open_payload: Option<(String, Vec<u8>)>,
     /// Slots selected during a drag operation (for multi-slot distribution).
     pub drag_slots: Vec<u32>,
     /// Whether players can grab items out of the inventory.
@@ -1359,6 +1364,7 @@ impl ScreenHandlerBehaviour {
             tracked_property_values: Vec::new(),
             window_type,
             menu_type_id: None,
+            java_open_payload: None,
             drag_slots: Vec::new(),
             allow_grab_items: true,
             allow_put_items: true,

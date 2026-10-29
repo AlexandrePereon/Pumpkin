@@ -6110,7 +6110,7 @@ impl Player {
                 target_entity_id: VarLong(-1),
             };
 
-            self.try_enqueue_packet_editioned(&java_packet, &bedrock_packet);
+            self.enqueue_open_screen(&*screen_handler_temp, &java_packet, &bedrock_packet);
 
             drop(screen_handler_temp);
             self.on_screen_handler_opened(&screen_handler);
@@ -6129,6 +6129,24 @@ impl Player {
                 );
             }
             None
+        }
+    }
+
+    /// Sends a screen's opening: `java_packet`, or the custom payload the
+    /// screen handler carries in its place (a mod loader's own opening, see
+    /// `ScreenHandlerBehaviour::java_open_payload`).
+    fn enqueue_open_screen(
+        &self,
+        screen_handler: &dyn ScreenHandler,
+        java_packet: &COpenScreen<'_>,
+        bedrock_packet: &CContainerOpen,
+    ) {
+        match &screen_handler.get_behaviour().java_open_payload {
+            Some((channel, data)) => self.try_enqueue_packet_editioned(
+                &CCustomPayload::new(channel, data),
+                bedrock_packet,
+            ),
+            None => self.try_enqueue_packet_editioned(java_packet, bedrock_packet),
         }
     }
 
@@ -6187,7 +6205,7 @@ impl Player {
             target_entity_id: VarLong(-1),
         };
 
-        self.try_enqueue_packet_editioned(&java_packet, &bedrock_packet);
+        self.enqueue_open_screen(&*screen_handler_temp, &java_packet, &bedrock_packet);
 
         drop(screen_handler_temp);
         self.on_screen_handler_opened(&screen_handler);
