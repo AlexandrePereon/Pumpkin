@@ -21,7 +21,9 @@ use std::path::{Path, PathBuf};
 
 use pumpkin_data::block_extension::{self, ExtensionBlock, PropertyDef};
 use pumpkin_data::block_properties::BLOCK_ENTITY_TYPES;
-use pumpkin_data::block_properties::{COLLISION_SHAPES, EnumVariants, NoteblockInstrument};
+use pumpkin_data::block_properties::{
+    COLLISION_SHAPES, EnumVariants, NoteblockInstrument, SOUND_TYPES,
+};
 use pumpkin_data::block_state::PistonBehavior;
 use pumpkin_data::{Block, BlockId, BlockState, BlockStateId};
 use pumpkin_util::math::{boundingbox::BoundingBox, vector3::Vector3};
@@ -175,6 +177,8 @@ struct DumpState {
     piston_behavior: String,
     hardness: f32,
     opacity: u8,
+    /// Index into the dump's `sound_types`; absent from dumps older than it.
+    sound_type: Option<u8>,
     collision_shapes: Vec<u16>,
     outline_shapes: Vec<u16>,
     block_entity_type: Option<u16>,
@@ -271,6 +275,7 @@ fn extension_from_dump(
             collision_shapes: shape_indices(&state.collision_shapes)?,
             outline_shapes: shape_indices(&state.outline_shapes)?,
             opacity: state.opacity,
+            sound_type: sound_type(state.sound_type),
             block_entity_type: state.block_entity_type.unwrap_or(u16::MAX),
         });
     }
@@ -453,6 +458,16 @@ fn from_hand_written(entries: &[HandWrittenBlock]) -> Vec<ExtensionBlock> {
 
 /// Builds a `'static` block copying `template`'s physical state under a new name
 /// and a new id range.
+/// A dumped sound type index. Sound types are numbered in block order, so a
+/// mod block's vanilla sound type has vanilla's index; a mod's own sound type
+/// lies past the generated table and falls back to `STONE` (index 0), vanilla's
+/// default, as does a dump without sound types.
+fn sound_type(index: Option<u8>) -> u8 {
+    index
+        .filter(|&index| usize::from(index) < SOUND_TYPES.len())
+        .unwrap_or(0)
+}
+
 fn copy_of(
     name: &str,
     template: &'static Block,
@@ -482,6 +497,7 @@ fn copy_of(
         collision_shapes: state.collision_shapes,
         outline_shapes: state.outline_shapes,
         opacity: state.opacity,
+        sound_type: state.sound_type,
         // Never copied: claiming the template's block entity type would make
         // the server expect NBT this block does not carry.
         block_entity_type: u16::MAX,

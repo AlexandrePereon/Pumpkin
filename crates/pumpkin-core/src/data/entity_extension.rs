@@ -17,10 +17,12 @@ use std::fs;
 use std::path::Path;
 use std::sync::OnceLock;
 
-use pumpkin_data::entity::{EntityType, MobCategory, SpawnLocation, SpawnRestriction};
+use pumpkin_data::entity::{
+    EntityType, MobCategory, MovementEmission, SpawnLocation, SpawnRestriction,
+};
 use pumpkin_data::attributes::Attributes;
 use pumpkin_data::entity_type_extension;
-use pumpkin_data::sound::Sound;
+use pumpkin_data::sound::{Sound, SoundCategory};
 use pumpkin_util::HeightMap;
 use serde::Deserialize;
 use tracing::{info, warn};
@@ -61,6 +63,21 @@ struct DumpEntity {
     hurt_sound: Option<String>,
     #[serde(default)]
     death_sound: Option<String>,
+    // The movement fields are absent from dumps older than them.
+    #[serde(default)]
+    sound_source: Option<String>,
+    #[serde(default)]
+    movement_emission: Option<String>,
+    #[serde(default)]
+    swim_sound: Option<String>,
+    #[serde(default)]
+    swim_splash_sound: Option<String>,
+    #[serde(default)]
+    swim_high_speed_splash_sound: Option<String>,
+    #[serde(default)]
+    small_fall_sound: Option<String>,
+    #[serde(default)]
+    big_fall_sound: Option<String>,
     #[serde(default)]
     attackable: Option<bool>,
     #[serde(default)]
@@ -157,6 +174,15 @@ fn build(name: &str, entity: &DumpEntity) -> Result<(EntityType, ModSounds), Str
         experience_reward: entity.experience_reward.unwrap_or(0),
         hurt_sound,
         death_sound,
+        sound_source: sound_source(entity.sound_source.as_deref())?,
+        movement_emission: movement_emission(entity.movement_emission.as_deref())?,
+        swim_sound: vanilla_sound(entity.swim_sound.as_deref()),
+        swim_splash_sound: vanilla_sound(entity.swim_splash_sound.as_deref()),
+        swim_high_speed_splash_sound: vanilla_sound(
+            entity.swim_high_speed_splash_sound.as_deref(),
+        ),
+        small_fall_sound: vanilla_sound(entity.small_fall_sound.as_deref()),
+        big_fall_sound: vanilla_sound(entity.big_fall_sound.as_deref()),
         attackable: entity.attackable,
         mob: entity.mob.unwrap_or(false),
         is_enemy: entity.is_enemy,
@@ -202,6 +228,31 @@ fn entity_sound(name: Option<&str>) -> Result<(Option<Sound>, Option<u16>), Stri
         .id_of(name)
         .map(|id| (None, Some(id)))
         .ok_or_else(|| format!("sound {name} is neither vanilla nor an installed extension one"))
+}
+
+/// A vanilla movement sound by its dumped name. A mod's own is dropped: only
+/// hurt and death sounds have a side table.
+fn vanilla_sound(name: Option<&str>) -> Option<Sound> {
+    name.and_then(Sound::from_name)
+}
+
+/// The dumped `getSoundSource`, `NEUTRAL` when absent, as vanilla's default.
+fn sound_source(name: Option<&str>) -> Result<SoundCategory, String> {
+    name.map_or(Ok(SoundCategory::Neutral), |name| {
+        SoundCategory::from_name(&name.to_ascii_lowercase())
+            .ok_or_else(|| format!("unknown sound source {name}"))
+    })
+}
+
+/// The dumped `getMovementEmission`, `ALL` when absent, as vanilla's default.
+fn movement_emission(name: Option<&str>) -> Result<MovementEmission, String> {
+    Ok(match name {
+        None | Some("ALL") => MovementEmission::All,
+        Some("NONE") => MovementEmission::None,
+        Some("SOUNDS") => MovementEmission::Sounds,
+        Some("EVENTS") => MovementEmission::Events,
+        Some(other) => return Err(format!("unknown movement emission {other}")),
+    })
 }
 
 fn category(name: &str) -> Result<&'static MobCategory, String> {
