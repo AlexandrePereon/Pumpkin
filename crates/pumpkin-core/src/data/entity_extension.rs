@@ -18,12 +18,14 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 use pumpkin_data::entity::{
-    EntityType, MobCategory, MovementEmission, SpawnLocation, SpawnRestriction,
+    BoatSeats, EntityAttachments, EntityPose, EntityType, MobCategory, MovementEmission,
+    PoseDimensions, SpawnLocation, SpawnRestriction,
 };
 use pumpkin_data::attributes::Attributes;
 use pumpkin_data::entity_type_extension;
 use pumpkin_data::sound::{Sound, SoundCategory};
 use pumpkin_util::HeightMap;
+use pumpkin_util::math::boundingbox::EntityDimensions;
 use serde::Deserialize;
 use tracing::{info, warn};
 
@@ -63,7 +65,33 @@ struct DumpEntity {
     hurt_sound: Option<String>,
     #[serde(default)]
     death_sound: Option<String>,
-    // The movement fields are absent from dumps older than them.
+    // The fields below are absent from dumps older than them.
+    #[serde(default)]
+    ambient_sound: Option<String>,
+    #[serde(default)]
+    eating_sound: Option<String>,
+    #[serde(default)]
+    angry_sound: Option<String>,
+    #[serde(default)]
+    sit_sound: Option<String>,
+    #[serde(default)]
+    stand_sound: Option<String>,
+    #[serde(default)]
+    dash_sound: Option<String>,
+    #[serde(default)]
+    dash_ready_sound: Option<String>,
+    #[serde(default)]
+    saddle_sound: Option<String>,
+    #[serde(default)]
+    passenger_attachments: Option<Vec<[f64; 3]>>,
+    #[serde(default)]
+    vehicle_attachment: Option<[f64; 3]>,
+    #[serde(default)]
+    baby: Option<DumpBaby>,
+    #[serde(default)]
+    poses: BTreeMap<String, DumpPose>,
+    #[serde(default)]
+    boat: Option<DumpBoat>,
     #[serde(default)]
     sound_source: Option<String>,
     #[serde(default)]
@@ -98,6 +126,33 @@ struct DumpEntity {
     eye_height: f32,
     spawn_dimensions_scale: f32,
     spawn_restriction: DumpSpawnRestriction,
+}
+
+/// A pose's size and attachment points, where they differ from standing.
+#[derive(Deserialize)]
+struct DumpPose {
+    dimension: [f32; 2],
+    eye_height: f32,
+    passenger_attachments: Vec<[f64; 3]>,
+    vehicle_attachment: [f64; 3],
+}
+
+#[derive(Deserialize)]
+struct DumpBaby {
+    dimension: [f32; 2],
+    eye_height: f32,
+    passenger_attachments: Vec<[f64; 3]>,
+    vehicle_attachment: [f64; 3],
+    eating_sound: Option<String>,
+    angry_sound: Option<String>,
+    #[serde(default)]
+    poses: BTreeMap<String, DumpPose>,
+}
+
+#[derive(Deserialize)]
+struct DumpBoat {
+    ride_height: f64,
+    single_passenger_x_offset: f32,
 }
 
 #[derive(Deserialize)]
@@ -174,6 +229,16 @@ fn build(name: &str, entity: &DumpEntity) -> Result<(EntityType, ModSounds), Str
         experience_reward: entity.experience_reward.unwrap_or(0),
         hurt_sound,
         death_sound,
+        ambient_sound: vanilla_sound(entity.ambient_sound.as_deref()),
+        eating_sound: vanilla_sound(entity.eating_sound.as_deref()),
+        baby_eating_sound: vanilla_sound(entity.baby.as_ref().and_then(|b| b.eating_sound.as_deref())),
+        angry_sound: vanilla_sound(entity.angry_sound.as_deref()),
+        baby_angry_sound: vanilla_sound(entity.baby.as_ref().and_then(|b| b.angry_sound.as_deref())),
+        sit_sound: vanilla_sound(entity.sit_sound.as_deref()),
+        stand_sound: vanilla_sound(entity.stand_sound.as_deref()),
+        dash_sound: vanilla_sound(entity.dash_sound.as_deref()),
+        dash_ready_sound: vanilla_sound(entity.dash_ready_sound.as_deref()),
+        saddle_sound: vanilla_sound(entity.saddle_sound.as_deref()),
         sound_source: sound_source(entity.sound_source.as_deref())?,
         movement_emission: movement_emission(entity.movement_emission.as_deref())?,
         swim_sound: vanilla_sound(entity.swim_sound.as_deref()),
@@ -202,6 +267,23 @@ fn build(name: &str, entity: &DumpEntity) -> Result<(EntityType, ModSounds), Str
             location: location(&entity.spawn_restriction.location)?,
             heightmap: heightmap(&entity.spawn_restriction.heightmap)?,
         },
+        // `EntityAttachments.createDefault` when the dump has none.
+        attachments: attachments(
+            entity.passenger_attachments.as_deref().unwrap_or(&[[0.0, f64::from(entity.dimension[1]), 0.0]]),
+            entity.vehicle_attachment.unwrap_or_default(),
+        ),
+        baby_attachments: entity.baby.as_ref().map(|b| attachments(&b.passenger_attachments, b.vehicle_attachment)),
+        baby_dimensions: entity.baby.as_ref().map(|b| EntityDimensions {
+            width: b.dimension[0],
+            height: b.dimension[1],
+            eye_height: b.eye_height,
+        }),
+        poses: poses(&entity.poses)?,
+        baby_poses: entity.baby.as_ref().map_or(Ok(&[][..]), |b| poses(&b.poses))?,
+        boat: entity.boat.as_ref().map(|b| BoatSeats {
+            ride_height: b.ride_height,
+            single_passenger_x_offset: b.single_passenger_x_offset,
+        }),
         resource_name: Box::leak(name.to_owned().into_boxed_str()),
     };
     Ok((entity_type, ModSounds { hurt, death }))
@@ -228,6 +310,57 @@ fn entity_sound(name: Option<&str>) -> Result<(Option<Sound>, Option<u16>), Stri
         .id_of(name)
         .map(|id| (None, Some(id)))
         .ok_or_else(|| format!("sound {name} is neither vanilla nor an installed extension one"))
+}
+
+fn attachments(passenger: &[[f64; 3]], vehicle: [f64; 3]) -> EntityAttachments {
+    EntityAttachments {
+        passenger: Box::leak(passenger.to_vec().into_boxed_slice()),
+        vehicle,
+    }
+}
+
+/// The dumped poses, as codegen writes them: by name, in name order.
+fn poses(dumped: &BTreeMap<String, DumpPose>) -> Result<&'static [PoseDimensions], String> {
+    let poses = dumped
+        .iter()
+        .map(|(name, pose)| {
+            Ok(PoseDimensions {
+                pose: entity_pose(name)?,
+                dimensions: EntityDimensions {
+                    width: pose.dimension[0],
+                    height: pose.dimension[1],
+                    eye_height: pose.eye_height,
+                },
+                attachments: attachments(&pose.passenger_attachments, pose.vehicle_attachment),
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(if poses.is_empty() { &[] } else { Box::leak(poses.into_boxed_slice()) })
+}
+
+/// A pose by its dumped name (`Pose` in lower case).
+fn entity_pose(name: &str) -> Result<EntityPose, String> {
+    Ok(match name {
+        "standing" => EntityPose::Standing,
+        "fall_flying" => EntityPose::FallFlying,
+        "sleeping" => EntityPose::Sleeping,
+        "swimming" => EntityPose::Swimming,
+        "spin_attack" => EntityPose::SpinAttack,
+        "crouching" => EntityPose::Crouching,
+        "long_jumping" => EntityPose::LongJumping,
+        "dying" => EntityPose::Dying,
+        "croaking" => EntityPose::Croaking,
+        "using_tongue" => EntityPose::UsingTongue,
+        "sitting" => EntityPose::Sitting,
+        "roaring" => EntityPose::Roaring,
+        "sniffing" => EntityPose::Sniffing,
+        "emerging" => EntityPose::Emerging,
+        "digging" => EntityPose::Digging,
+        "sliding" => EntityPose::Sliding,
+        "shooting" => EntityPose::Shooting,
+        "inhaling" => EntityPose::Inhaling,
+        other => return Err(format!("unknown pose {other}")),
+    })
 }
 
 /// A vanilla movement sound by its dumped name. A mod's own is dropped: only
