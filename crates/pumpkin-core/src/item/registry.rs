@@ -103,6 +103,13 @@ impl ItemRegistry {
         }
     }
 
+    /// Whether the behaviour of `stack` completed its use itself
+    /// ([`ItemBehaviour::finish_using`]).
+    pub fn finish_using(&self, stack: &ItemStack, player: &Player, hand: Hand) -> bool {
+        self.get_pumpkin_item(stack.item.id)
+            .is_some_and(|behaviour| behaviour.finish_using(stack, player, hand))
+    }
+
     pub fn on_use_tick(
         &self,
         stack: &ItemStack,

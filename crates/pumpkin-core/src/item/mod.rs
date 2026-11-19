@@ -79,6 +79,14 @@ pub trait ItemBehaviour: Send + Sync {
     ) {
     }
 
+    /// Called when the use time of `stack`, held in `hand`, runs out (vanilla's
+    /// `Item.finishUsingItem`). Returns `true` when the behaviour completed the
+    /// use itself, any change to the stack included; the default completion
+    /// (eating, drinking, consuming one) is then skipped.
+    fn finish_using(&self, _stack: &ItemStack, _player: &Player, _hand: Hand) -> bool {
+        false
+    }
+
     /// Returns the maximum number of ticks this item can be used for.
     /// Return 0 if the item does not have a behaviour-driven use duration.
     fn get_use_duration(&self) -> i32 {

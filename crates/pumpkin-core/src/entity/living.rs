@@ -4740,7 +4740,19 @@ impl EntityBase for LivingEntity {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .clone();
-            if let Some(item) = item_in_use.as_ref() {
+            let hand = self
+                .active_hand
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .unwrap_or(Hand::Right);
+            // An item behaviour may complete the use itself (vanilla's
+            // `Item.finishUsingItem` overridden), instead of what follows.
+            if let Some(item) = item_in_use.as_ref()
+                && let Some(player) = caller.get_player()
+                && server.item_registry.finish_using(item, player, hand)
+            {
+                self.clear_active_hand();
+            } else if let Some(item) = item_in_use.as_ref() {
                 // Consume item
                 if let Some(food) = item.get_data_component::<FoodImpl>()
                     && let Some(player) = caller.get_player()
