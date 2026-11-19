@@ -1,3 +1,4 @@
+pub mod extension_behaviour;
 pub mod items;
 pub mod potion;
 pub mod registry;

@@ -208,7 +208,9 @@ impl ItemRegistry {
 
     #[must_use]
     pub fn get_pumpkin_item(&self, item: u16) -> Option<&Arc<dyn ItemBehaviour>> {
-        self.items.get(&item)
+        self.items
+            .get(&item)
+            .or_else(|| super::extension_behaviour::get(item))
     }
 }
 
