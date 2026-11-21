@@ -152,6 +152,10 @@ pub struct JavaClient {
     pub packet_limiter: PacketRateLimiter,
     /// Vanilla `suspendFlushingOnServerThread`.
     suspend_flushing: Arc<AtomicBool>,
+    /// The task of the player's last chat command or message: the next one
+    /// waits for it, so they run in the order they were sent (vanilla's
+    /// `chatMessageChain`).
+    chat_chain: std::sync::Mutex<Option<JoinHandle<()>>>,
 }
 
 impl JavaClient {
@@ -190,7 +194,25 @@ impl JavaClient {
             packet_sequence: AtomicI32::new(-1),
             packet_limiter: pending.packet_limiter,
             suspend_flushing: Arc::new(AtomicBool::new(false)),
+            chat_chain: std::sync::Mutex::new(None),
         }
+    }
+
+    /// Spawns `task` on the server after the player's previous chat command or
+    /// message has been handled: each runs in a task of its own, in the order
+    /// they arrived.
+    fn spawn_chained(&self, server: &Server, task: impl Future<Output = ()> + Send + 'static) {
+        let mut chain = self
+            .chat_chain
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let previous = chain.take();
+        *chain = Some(server.spawn_task(async move {
+            if let Some(previous) = previous {
+                let _ = previous.await;
+            }
+            task.await;
+        }));
     }
 
     /// Vanilla `ServerCommonPacketListenerImpl.suspendFlushing`.
@@ -894,7 +916,7 @@ impl JavaClient {
                 let client_platform = player.client.clone();
                 let player_c = player.clone();
                 let server_c = server.clone();
-                server.spawn_task(async move {
+                self.spawn_chained(server, async move {
                     if let ClientPlatform::Java(client) = client_platform.as_ref() {
                         let packet = SChatCommand { command: &cmd };
                         client
@@ -916,7 +938,7 @@ impl JavaClient {
                 let client_platform = player.client.clone();
                 let player_c = player.clone();
                 let server_c = server.clone();
-                server.spawn_task(async move {
+                self.spawn_chained(server, async move {
                     if let ClientPlatform::Java(client) = client_platform.as_ref() {
                         let packet = SChatCommand { command: &cmd };
                         client
@@ -937,7 +959,7 @@ impl JavaClient {
                 let client_platform = player.client.clone();
                 let player_c = player.clone();
                 let server_c = server.clone();
-                server.spawn_task(async move {
+                self.spawn_chained(server, async move {
                     if let ClientPlatform::Java(client) = client_platform.as_ref() {
                         let packet = SChatMessage {
                             message: &msg,
