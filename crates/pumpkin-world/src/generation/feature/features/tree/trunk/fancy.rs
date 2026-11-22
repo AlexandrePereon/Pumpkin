@@ -1,9 +1,6 @@
 use core::f32;
 
-use pumpkin_data::{
-    Block, BlockState,
-    block_properties::{Axis, PaleOakWoodLikeProperties},
-};
+use pumpkin_data::{Block, BlockState, block_properties::Axis};
 use pumpkin_util::{
     math::{position::BlockPos, vector3::Vector3},
     random::{RandomGenerator, RandomImpl},
@@ -157,10 +154,10 @@ impl FancyTrunkPlacer {
 
                 if TreeFeature::can_replace(block.to_state(), block.to_block_id()) {
                     let axis = Self::get_log_axis(start_pos, block_pos_2.0);
-                    let block = Block::from_state_id(trunk_provider.id);
-                    let mut props = PaleOakWoodLikeProperties::from_state_id(trunk_provider.id);
-                    props.axis = axis;
-                    let state = props.to_state_id(block).to_state();
+                    // Vanilla's `trySetValue(AXIS, axis)`: a log without an axis keeps its state.
+                    let state = Block::from_state_id(trunk_provider.id)
+                        .apply_properties(trunk_provider.id, &[pumpkin_data::Property::Axis(axis)])
+                        .to_state();
                     chunk.set_block_state(&block_pos_2.0, state);
                     logs.push(block_pos_2);
                 }

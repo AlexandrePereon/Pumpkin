@@ -8,7 +8,7 @@ use crate::generation::block_state_provider::BlockStateProvider;
 use crate::generation::feature::features::tree::TreeNode;
 use crate::generation::proto_chunk::GenerationCache;
 use crate::world::WorldPortalExt;
-use pumpkin_data::block_properties::{Axis, PaleOakWoodLikeProperties};
+use pumpkin_data::block_properties::Axis;
 
 pub struct CherryTrunkPlacer {
     pub count: IntProvider,
@@ -208,10 +208,9 @@ impl CherryTrunkPlacer {
         }
     }
 
+    /// Vanilla's `trySetValue(AXIS, axis)`: a log without an axis keeps its state.
     fn get_sideways_state(id: BlockStateId, axis: Axis) -> BlockStateId {
-        let block = id.to_block();
-        let mut props = PaleOakWoodLikeProperties::from_state_id(id);
-        props.axis = axis;
-        props.to_state_id(block)
+        id.to_block()
+            .apply_properties(id, &[pumpkin_data::Property::Axis(axis)])
     }
 }
