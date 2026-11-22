@@ -1,5 +1,6 @@
 #[allow(clippy::wildcard_imports)]
 use super::*;
+use crate::block::use_callback::UseBlockArgs;
 use crate::item::registry::should_try_block_placement;
 use pumpkin_data::block_properties::BlockProperties;
 
@@ -103,6 +104,25 @@ impl JavaClient {
                 return Ok(());
             }
         }}
+
+        // Mods see every use first, sneaking or not, as their loaders' use
+        // callbacks do.
+        if let Some(result) = block::use_callback::run(&UseBlockArgs {
+            server,
+            world: &world,
+            player,
+            hand,
+            position: &position,
+            hit: &BlockHitResult {
+                face: &face,
+                cursor_pos: &cursor_pos,
+            },
+        }) {
+            if matches!(result, BlockActionResult::SuccessServer) {
+                player.swing_hand(hand, true);
+            }
+            return Ok(());
+        }
 
         let equipment_slot = if matches!(hand, Hand::Right) {
             EquipmentSlot::MAIN_HAND

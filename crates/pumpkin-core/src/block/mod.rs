@@ -16,6 +16,7 @@ pub mod entities;
 pub mod extension_behaviour;
 pub mod fluid;
 pub mod registry;
+pub mod use_callback;
 pub mod viewer;
 
 use crate::block::registry::BlockActionResult;
