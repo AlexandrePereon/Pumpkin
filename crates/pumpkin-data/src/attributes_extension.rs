@@ -152,11 +152,17 @@ mod tests {
         let resonance: &'static Attributes = Box::leak(Box::new(Attributes {
             id: vanilla_count(),
             default_value: 5.0,
+            min_value: 0.0,
+            max_value: 1024.0,
+            client_syncable: true,
             name: "verse:resonance",
         }));
         let clash: &'static Attributes = Box::leak(Box::new(Attributes {
             id: vanilla_count(),
             default_value: 0.0,
+            min_value: 0.0,
+            max_value: 1024.0,
+            client_syncable: true,
             name: "minecraft:armor",
         }));
         assert!(install(vec![clash]).is_err(), "a vanilla name was accepted");

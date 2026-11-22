@@ -162,6 +162,7 @@ mod tests {
         let marker = Item {
             id: u16::MAX,
             registry_key: "pumpkinverse_test:marker",
+            crafting_remainder: None,
             components: &[],
         };
         let by_mod_id = OwnedRecipeIngredient::Simple("pumpkinverse_test:marker".to_string());

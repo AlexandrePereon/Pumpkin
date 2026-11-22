@@ -151,6 +151,7 @@ mod tests {
         Box::leak(Box::new(Item {
             id,
             registry_key: key,
+            crafting_remainder: None,
             components: Box::leak(components.into_boxed_slice()),
         }))
     }

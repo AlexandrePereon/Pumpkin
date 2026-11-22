@@ -610,6 +610,7 @@ mod tests {
                     collision_shapes: &[],
                     outline_shapes: &[],
                     opacity: 0,
+                    sound_type: 0,
                     block_entity_type: u16::MAX,
                 })
                 .collect::<Vec<_>>()
@@ -624,6 +625,8 @@ mod tests {
             slipperiness: 0.6,
             velocity_multiplier: 1.0,
             jump_velocity_multiplier: 1.0,
+            bounce_restitution: 0.0,
+            fall_distance_reduction: 0.0,
             item_id: 0,
             default_state: &states[default],
             states,
