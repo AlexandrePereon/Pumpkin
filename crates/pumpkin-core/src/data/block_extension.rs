@@ -156,6 +156,10 @@ struct DumpBlock {
     slipperiness: f32,
     velocity_multiplier: f32,
     jump_velocity_multiplier: f32,
+    #[serde(default)]
+    bounce_restitution: f32,
+    #[serde(default)]
+    fall_distance_reduction: f32,
     hardness: f32,
     blast_resistance: f32,
     map_color: u8,
@@ -297,6 +301,8 @@ fn extension_from_dump(
         slipperiness: block.slipperiness,
         velocity_multiplier: block.velocity_multiplier,
         jump_velocity_multiplier: block.jump_velocity_multiplier,
+        bounce_restitution: block.bounce_restitution,
+        fall_distance_reduction: block.fall_distance_reduction,
         item_id: block.item_id,
         default_state: &states[default_index],
         states,
@@ -512,6 +518,8 @@ fn copy_of(
         slipperiness: template.slipperiness,
         velocity_multiplier: template.velocity_multiplier,
         jump_velocity_multiplier: template.jump_velocity_multiplier,
+        bounce_restitution: template.bounce_restitution,
+        fall_distance_reduction: template.fall_distance_reduction,
         // No item form: the item registry is not synchronised, so an item id here
         // would mean nothing to the client.
         item_id: 0,

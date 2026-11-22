@@ -24,6 +24,7 @@ use pumpkin_data::entity::{
 use pumpkin_data::attributes::Attributes;
 use pumpkin_data::entity_type_extension;
 use pumpkin_data::sound::{Sound, SoundCategory};
+use pumpkin_data::tag::{self, RegistryKey, Tag};
 use pumpkin_util::HeightMap;
 use pumpkin_util::math::boundingbox::EntityDimensions;
 use serde::Deserialize;
@@ -96,6 +97,8 @@ struct DumpEntity {
     sound_source: Option<String>,
     #[serde(default)]
     movement_emission: Option<String>,
+    #[serde(default)]
+    immune_to: Option<String>,
     #[serde(default)]
     swim_sound: Option<String>,
     #[serde(default)]
@@ -241,6 +244,7 @@ fn build(name: &str, entity: &DumpEntity) -> Result<(EntityType, ModSounds), Str
         saddle_sound: vanilla_sound(entity.saddle_sound.as_deref()),
         sound_source: sound_source(entity.sound_source.as_deref())?,
         movement_emission: movement_emission(entity.movement_emission.as_deref())?,
+        immune_to: immune_to(entity.immune_to.as_deref())?,
         swim_sound: vanilla_sound(entity.swim_sound.as_deref()),
         swim_splash_sound: vanilla_sound(entity.swim_splash_sound.as_deref()),
         swim_high_speed_splash_sound: vanilla_sound(
@@ -375,6 +379,13 @@ fn sound_source(name: Option<&str>) -> Result<SoundCategory, String> {
         SoundCategory::from_name(&name.to_ascii_lowercase())
             .ok_or_else(|| format!("unknown sound source {name}"))
     })
+}
+
+/// The dumped `EntityType.immuneTo` block tag, vanilla's default one when
+/// absent. Only a generated tag can be named: datapack tags load later.
+fn immune_to(name: Option<&str>) -> Result<&'static Tag, String> {
+    let name = name.unwrap_or("minecraft:default_immune_to");
+    tag::get_tag(RegistryKey::Block, name).ok_or_else(|| format!("unknown immune_to tag {name}"))
 }
 
 /// The dumped `getMovementEmission`, `ALL` when absent, as vanilla's default.

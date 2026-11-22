@@ -29,6 +29,15 @@ use tracing::{info, warn};
 struct DumpItem {
     id: u16,
     components: BTreeMap<String, Value>,
+    #[serde(default)]
+    crafting_remainder: Option<DumpRemainder>,
+}
+
+/// `Item.getCraftingRemainder`, an `ItemStackTemplate`; only its item is kept,
+/// as codegen does.
+#[derive(Deserialize)]
+struct DumpRemainder {
+    id: String,
 }
 
 /// Reads `data_component.json` from an Extractor dump and installs the
@@ -110,6 +119,7 @@ fn leak_item(name: String, item: DumpItem) -> &'static Item {
     let DumpItem {
         id: raw_id,
         components: dumped,
+        crafting_remainder,
     } = item;
 
     let mut components: Vec<(DataComponent, &'static dyn DataComponentImpl)> = Vec::new();
@@ -125,9 +135,19 @@ fn leak_item(name: String, item: DumpItem) -> &'static Item {
         }
     }
 
+    let crafting_remainder = crafting_remainder.and_then(|remainder| {
+        // Only a vanilla item can be named: the extension is not installed yet.
+        let item = Item::from_registry_key(&remainder.id);
+        if item.is_none() {
+            warn!("Item {name}: crafting remainder {} is unknown and is skipped", remainder.id);
+        }
+        item
+    });
+
     Box::leak(Box::new(Item {
         id: raw_id,
         registry_key: Box::leak(name.into_boxed_str()),
+        crafting_remainder,
         components: Box::leak(components.into_boxed_slice()),
     }))
 }

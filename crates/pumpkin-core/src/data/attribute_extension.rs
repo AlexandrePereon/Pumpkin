@@ -20,6 +20,10 @@ use tracing::{info, warn};
 struct DumpAttribute {
     id: u8,
     default_value: f64,
+    /// Only a `RangedAttribute` has bounds; any other keeps every value.
+    min_value: Option<f64>,
+    max_value: Option<f64>,
+    client_syncable: bool,
 }
 
 /// Reads `attributes.json` from an Extractor dump and installs its
@@ -59,6 +63,9 @@ fn build(dump: BTreeMap<String, DumpAttribute>) -> Result<Vec<&'static Attribute
             extension.push(&*Box::leak(Box::new(Attributes {
                 id: attribute.id,
                 default_value: attribute.default_value,
+                min_value: attribute.min_value.unwrap_or(f64::NEG_INFINITY),
+                max_value: attribute.max_value.unwrap_or(f64::INFINITY),
+                client_syncable: attribute.client_syncable,
                 name: Box::leak(name.into_boxed_str()),
             })));
         } else {
@@ -104,6 +111,9 @@ mod tests {
             DumpAttribute {
                 id: Attributes::ARMOR.id,
                 default_value: 0.0,
+                min_value: Some(0.0),
+                max_value: Some(1024.0),
+                client_syncable: true,
             },
         );
         dump.insert(
@@ -111,6 +121,9 @@ mod tests {
             DumpAttribute {
                 id: 40,
                 default_value: 5.0,
+                min_value: Some(0.0),
+                max_value: Some(1024.0),
+                client_syncable: true,
             },
         );
         let built = build(dump).map(|v| v.iter().map(|a| (a.name, a.id)).collect::<Vec<_>>());
@@ -122,6 +135,9 @@ mod tests {
             DumpAttribute {
                 id: Attributes::ARMOR.id + 1,
                 default_value: 0.0,
+                min_value: Some(0.0),
+                max_value: Some(1024.0),
+                client_syncable: true,
             },
         );
         assert!(build(wrong).is_err());
