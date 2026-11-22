@@ -110,6 +110,7 @@ mod villager;
 mod wit;
 mod wolf_variant;
 mod world_event;
+mod worldgen_json;
 
 /// Output directory where all generated Rust source files are written.
 pub const OUT_DIR: &str = "../../crates/pumpkin-data/src/generated";
@@ -204,6 +205,7 @@ pub fn main() {
         (entity_status::build, "entity_status.rs"),
         (tag::build, "tag.rs"),
         (noise_router::build, "noise_router.rs"),
+        (worldgen_json::build, "worldgen_json.rs"),
         (villager::build, "villager.rs"),
         (
             flower_pot_transformations::build,

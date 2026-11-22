@@ -243,9 +243,18 @@ impl VanillaGenerator {
         biome_source: Option<&crate::world_info::BiomeSource>,
         structure_overrides: Option<&[String]>,
     ) -> Self {
-        let settings = settings_name
-            .and_then(NoiseSettings::from_name)
-            .unwrap_or_else(|| NoiseSettings::from_dimension(&dimension));
+        // A datapack's worldgen files replace the compiled settings and router they touch.
+        let datapack = super::noise::router::datapack::installed(
+            settings_name.unwrap_or_else(|| default_noise_settings_name(&dimension)),
+        );
+        let settings = datapack.map_or_else(
+            || {
+                settings_name
+                    .and_then(NoiseSettings::from_name)
+                    .unwrap_or_else(|| NoiseSettings::from_dimension(&dimension))
+            },
+            |d| d.settings,
+        );
         let surface_rule = settings_name
             .and_then(MaterialRule::from_name)
             .unwrap_or_else(|| MaterialRule::from_dimension(&dimension));
@@ -253,9 +262,14 @@ impl VanillaGenerator {
             crate::biome::ActiveBiomeSupplier::from_biome_source(biome_source, &dimension);
         let random_config = GlobalRandomConfig::new(seed.0, settings.legacy_random_source);
 
-        let base = settings_name
-            .and_then(BaseNoiseRouters::from_name)
-            .unwrap_or_else(|| BaseNoiseRouters::from_dimension(&dimension));
+        let base = datapack.map_or_else(
+            || {
+                settings_name
+                    .and_then(BaseNoiseRouters::from_name)
+                    .unwrap_or_else(|| BaseNoiseRouters::from_dimension(&dimension))
+            },
+            |d| d.router,
+        );
         let terrain_cache = TerrainCache::from_random(&random_config);
 
         let default_block = settings.default_block;
@@ -335,6 +349,18 @@ impl VanillaGenerator {
             uniform_carvers,
             possible_biomes,
         }
+    }
+}
+
+/// The noise settings a dimension generates with when its generator names none, as
+/// `NoiseSettings::from_dimension` picks them.
+fn default_noise_settings_name(dimension: &Dimension) -> &'static str {
+    if dimension == &Dimension::OVERWORLD {
+        "minecraft:overworld"
+    } else if dimension == &Dimension::THE_NETHER {
+        "minecraft:nether"
+    } else {
+        "minecraft:end"
     }
 }
 

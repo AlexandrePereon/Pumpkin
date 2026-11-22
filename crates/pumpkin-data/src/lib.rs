@@ -299,6 +299,13 @@ pub mod tag_extension;
 #[path = "generated/noise_router.rs"]
 pub mod noise_router;
 
+/// The vanilla worldgen JSON (`density_function`, `noise`, `noise_settings`), embedded so
+/// that a datapack's worldgen files can be resolved against it at runtime.
+#[cfg(feature = "noise_router")]
+#[rustfmt::skip]
+#[path = "generated/worldgen_json.rs"]
+pub mod worldgen_json;
+
 
 #[cfg(feature = "flower_pot")]
 #[rustfmt::skip]
