@@ -3,6 +3,7 @@ use pumpkin_data::{Block, BlockId, BlockState, BlockStateId};
 use pumpkin_util::math::position::BlockPos;
 use pumpkin_util::random::{RandomGenerator, RandomImpl, xoroshiro128::Xoroshiro};
 use pumpkin_world::generation::feature::{
+    biome_datapack::{self, FeatureKey},
     configured_features::{BONE_MEAL_FEATURES, ConfiguredFeature, configured_feature},
     placed_features::{Feature, placed_feature},
 };
@@ -166,12 +167,13 @@ fn biome_bonemeal_state(
     world: &crate::world::World,
     position: BlockPos,
 ) -> Option<(&'static BlockState, bool)> {
-    let features: Vec<_> = world
-        .get_biome(&position)
-        .features
-        .iter()
-        .flat_map(|step| step.iter())
-        .filter_map(|key| placed_feature(*key))
+    let features: Vec<_> = biome_datapack::feature_keys(world.get_biome(&position))
+        .into_iter()
+        .flatten()
+        .filter_map(|key| match key {
+            FeatureKey::Vanilla(key) => placed_feature(key),
+            FeatureKey::Pack(number) => biome_datapack::own_placed(number),
+        })
         .filter_map(|feature| match &feature.feature {
             Feature::Named(key) if BONE_MEAL_FEATURES.contains(key) => Some(*key),
             Feature::Named(_) | Feature::Inlined(_) => None,

@@ -6,7 +6,9 @@
 //! `worldgen/material_condition`, with the rule a noise settings file names, into its
 //! surface rules (see [`pumpkin_world::generation::surface_datapack`]); `worldgen/feature`,
 //! `worldgen/placed_feature` and `worldgen/block_state_provider` into the features they
-//! override (see [`pumpkin_world::generation::feature::datapack`]).
+//! override (see [`pumpkin_world::generation::feature::datapack`]); `worldgen/biome` into the
+//! feature lists and carvers of the vanilla biomes it overrides (see
+//! [`pumpkin_world::generation::feature::biome_datapack`]).
 //!
 //! As in vanilla, worldgen registries are fixed for the server's lifetime: `/reload` and
 //! `/datapack enable` do not change the terrain of a running server.
@@ -14,6 +16,7 @@
 use std::fs;
 use std::path::Path;
 
+use pumpkin_world::generation::feature::biome_datapack;
 use pumpkin_world::generation::feature::datapack as feature_datapack;
 use pumpkin_world::generation::noise::router::datapack::{self, WorldgenJson, WorldgenRegistry};
 use pumpkin_world::generation::surface_datapack;
@@ -144,5 +147,19 @@ pub fn install(world_path: &Path, enabled_packs: &[String]) {
     }
     if !feature_datapack::install(features) {
         warn!("Datapack features were installed already; this change needs a restart");
+    }
+    let (biomes, errors) = json.build_datapack_biomes();
+    for error in &errors {
+        warn!("Datapack biome kept compiled: {error}");
+    }
+    if !biomes.is_empty() {
+        info!(
+            "Biome feature lists and carvers built from datapacks for: {} ({} placed feature(s) of their own)",
+            biomes.names().join(", "),
+            biomes.own_count()
+        );
+    }
+    if !biome_datapack::install(biomes) {
+        warn!("Datapack biomes were installed already; this change needs a restart");
     }
 }
