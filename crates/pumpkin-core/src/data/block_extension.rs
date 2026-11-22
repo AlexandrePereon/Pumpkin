@@ -15,9 +15,10 @@
 //! - **Hand-written entries** (`blocks`): a name plus a vanilla block whose
 //!   physical state is copied. A stopgap for single-state, full-cube blocks.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use pumpkin_data::block_extension::{self, ExtensionBlock, PropertyDef};
 use pumpkin_data::block_properties::BLOCK_ENTITY_TYPES;
@@ -338,31 +339,37 @@ fn property_values(property: &DumpProperty) -> Result<Vec<String>, String> {
     }
 }
 
+/// Where each of the dump's shapes sits in Pumpkin's table, set by
+/// [`install_shapes`].
+static SHAPE_INDICES: OnceLock<Vec<u16>> = OnceLock::new();
+
 /// Installs the dump's shapes that Pumpkin's generated table lacks.
 ///
-/// The Extractor numbers boxes the way Pumpkin's table was built, in registry
-/// order without repeats, so vanilla's boxes come first at the same indices
-/// and a mod's new boxes follow. The vanilla prefix must match exactly, or
-/// every index after a difference would name the wrong box.
+/// Both tables list boxes without repeats, but the Extractor may have grown
+/// its vanilla list since Pumpkin's table was generated, so boxes are matched
+/// by value: one Pumpkin has keeps its index, any other is appended after the
+/// generated table. Shapes are server-side only; no client sees the indices.
 fn install_shapes(shapes: &[DumpShape]) -> Result<(), String> {
-    let vanilla = COLLISION_SHAPES.len();
-    let prefix_matches = shapes.len() >= vanilla
-        && COLLISION_SHAPES.iter().zip(shapes).all(|(ours, dump)| {
-            [ours.min.x, ours.min.y, ours.min.z] == dump.min
-                && [ours.max.x, ours.max.y, ours.max.z] == dump.max
-        });
-    if !prefix_matches {
-        return Err("blocks.json: shapes do not start with Pumpkin's shape table".into());
-    }
-
-    let extra: Vec<BoundingBox> = shapes[vanilla..]
+    let key = |min: [f64; 3], max: [f64; 3]| min.into_iter().chain(max).map(f64::to_bits).collect::<Vec<_>>();
+    let ours: HashMap<Vec<u64>, usize> = COLLISION_SHAPES
         .iter()
-        .map(|dump| {
+        .enumerate()
+        .map(|(index, b)| (key([b.min.x, b.min.y, b.min.z], [b.max.x, b.max.y, b.max.z]), index))
+        .collect();
+    let mut extra = Vec::new();
+    let mut indices = Vec::with_capacity(shapes.len());
+    for dump in shapes {
+        let index = ours.get(&key(dump.min, dump.max)).copied().unwrap_or_else(|| {
             let [x, y, z] = dump.min;
             let [x2, y2, z2] = dump.max;
-            BoundingBox::new(Vector3::new(x, y, z), Vector3::new(x2, y2, z2))
-        })
-        .collect();
+            extra.push(BoundingBox::new(Vector3::new(x, y, z), Vector3::new(x2, y2, z2)));
+            COLLISION_SHAPES.len() + extra.len() - 1
+        });
+        indices.push(u16::try_from(index).map_err(|_| "blocks.json: too many shapes")?);
+    }
+    SHAPE_INDICES
+        .set(indices)
+        .map_err(|_| "extension shapes are already installed")?;
     if extra.is_empty() {
         return Ok(());
     }
@@ -372,14 +379,20 @@ fn install_shapes(shapes: &[DumpShape]) -> Result<(), String> {
     Ok(())
 }
 
-/// Checks dump shape indices against the installed shape table, vanilla plus
-/// the dump's own boxes (see [`install_shapes`]).
+/// Maps dump shape indices to the installed shape table, vanilla plus the
+/// dump's own boxes (see [`install_shapes`]).
 fn shape_indices(indices: &[u16]) -> Result<&'static [u16], String> {
-    let count = block_extension::shape_count();
-    if let Some(index) = indices.iter().find(|&&index| usize::from(index) >= count) {
-        return Err(format!("shape {index} is not in the shape table"));
-    }
-    Ok(Box::leak(indices.to_vec().into_boxed_slice()))
+    let table = SHAPE_INDICES.get().map_or(&[][..], Vec::as_slice);
+    let mapped = indices
+        .iter()
+        .map(|&index| {
+            table
+                .get(usize::from(index))
+                .copied()
+                .ok_or_else(|| format!("shape {index} is not in the dump's shape table"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Box::leak(mapped.into_boxed_slice()))
 }
 
 fn instrument(name: &str) -> Option<NoteblockInstrument> {

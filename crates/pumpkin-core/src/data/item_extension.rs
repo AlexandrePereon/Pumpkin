@@ -40,12 +40,30 @@ struct DumpRemainder {
     id: String,
 }
 
+/// A component type's entry: its raw id, alone in older dumps, or with its
+/// metadata (`persistent`, `ignore_swap_animation`), of which only the id is
+/// read for now.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum DumpComponentType {
+    Id(u16),
+    WithMetadata { id: u16 },
+}
+
+impl DumpComponentType {
+    const fn id(&self) -> u16 {
+        match self {
+            Self::Id(id) | Self::WithMetadata { id } => *id,
+        }
+    }
+}
+
 /// Reads `data_component.json` from an Extractor dump and installs the
 /// component types a mod declared, so registry sync can name them and item
 /// stacks carrying them are not rejected.
 pub fn install_component_types_from_dump(dir: &Path) {
     let path = dir.join("data_component.json");
-    let dump: BTreeMap<String, u16> = match fs::read_to_string(&path)
+    let dump: BTreeMap<String, DumpComponentType> = match fs::read_to_string(&path)
         .map_err(|e| e.to_string())
         .and_then(|text| serde_json::from_str(&text).map_err(|e| e.to_string()))
     {
@@ -59,7 +77,7 @@ pub fn install_component_types_from_dump(dir: &Path) {
     let mut entries: Vec<(u16, &'static str)> = dump
         .into_iter()
         .filter(|(name, _)| !name.starts_with("minecraft:"))
-        .map(|(name, id)| (id, &*Box::leak(name.into_boxed_str())))
+        .map(|(name, entry)| (entry.id(), &*Box::leak(name.into_boxed_str())))
         .collect();
     if entries.is_empty() {
         return;
