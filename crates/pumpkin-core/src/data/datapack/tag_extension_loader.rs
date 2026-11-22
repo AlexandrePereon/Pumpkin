@@ -1,4 +1,4 @@
-//! Block and item tags from datapacks.
+//! Block, item and biome tags from datapacks.
 //!
 //! Vanilla's tags are generated into `pumpkin_data::tag`. A datapack may
 //! extend them — adding its blocks to `minecraft:mineable/pickaxe` — or
@@ -14,6 +14,7 @@ use std::fs;
 use std::path::Path;
 
 use pumpkin_data::Block;
+use pumpkin_data::biome::Biome;
 use pumpkin_data::item::Item;
 use pumpkin_data::tag::{RegistryKey, get_latest_map, get_tag_includes};
 use pumpkin_data::tag_extension::{self, ExtensionTag};
@@ -21,11 +22,12 @@ use serde::Deserialize;
 use tracing::{info, warn};
 
 /// The registries whose tags are read, by their folder names under `tags/`.
-const REGISTRIES: [(&str, RegistryKey); 4] = [
+const REGISTRIES: [(&str, RegistryKey); 5] = [
     ("block", RegistryKey::Block),
     ("blocks", RegistryKey::Block),
     ("item", RegistryKey::Item),
     ("items", RegistryKey::Item),
+    ("worldgen/biome", RegistryKey::WorldgenBiome),
 ];
 
 #[derive(Deserialize)]
@@ -197,6 +199,11 @@ impl<'a> Resolver<'a> {
         match self.key {
             RegistryKey::Block => Block::from_name(name).map(|block| block.id.as_u16()),
             RegistryKey::Item => Item::from_registry_key(name).map(|item| item.id),
+            // Biomes are a compiled set: a tag can name only vanilla's.
+            RegistryKey::WorldgenBiome => name
+                .strip_prefix("minecraft:")
+                .and_then(Biome::from_name)
+                .map(|biome| u16::from(biome.id)),
             _ => None,
         }
     }
@@ -370,6 +377,30 @@ mod tests {
             .find(|t| t.name == "minecraft:oak_logs")
             .unwrap();
         assert_eq!(oak.values.last().map(String::as_str), Some("stone"));
+    }
+
+    #[test]
+    fn biome_tags_resolve_to_the_synced_ids() {
+        // The generated biome tags use the ids `Biome` has.
+        let (values, vanilla_ids) = get_latest_map(RegistryKey::WorldgenBiome)
+            .get("minecraft:is_ocean")
+            .unwrap();
+        for (value, id) in values.iter().zip(*vanilla_ids) {
+            let biome = pumpkin_data::biome::Biome::from_name(value).unwrap();
+            assert_eq!(u16::from(biome.id), *id, "{value}");
+        }
+        let plains = u16::from(pumpkin_data::biome::Biome::PLAINS.id);
+        let files = BTreeMap::from([(
+            "waystones:has_structure/test".to_owned(),
+            vec![
+                entry("minecraft:plains", true),
+                entry("#minecraft:is_ocean", true),
+            ],
+        )]);
+        let tags = Resolver::new(RegistryKey::WorldgenBiome, &files, &HashSet::new()).resolve_all();
+        let tag = ids(&tags, "waystones:has_structure/test").unwrap();
+        assert_eq!(tag[0], plains);
+        assert_eq!(tag.len(), 1 + vanilla_ids.len());
     }
 
     #[test]
