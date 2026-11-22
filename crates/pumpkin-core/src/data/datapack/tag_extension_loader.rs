@@ -74,7 +74,7 @@ impl RawTags {
 }
 
 /// Reads one namespace's `tags/` folder; returns how many tag files it held.
-pub fn load_tags_from_dir(namespace: &str, tags_dir: &Path, raw: &mut RawTags) -> usize {
+fn load_tags_from_dir(namespace: &str, tags_dir: &Path, raw: &mut RawTags) -> usize {
     let mut count = 0;
     for (folder, key) in REGISTRIES {
         let dir = tags_dir.join(folder);
@@ -143,9 +143,46 @@ fn load_recursive(
     count
 }
 
-/// Resolves the tags read and installs them, once: tags do not change on
-/// `/reload`, which also sends the client none.
-pub fn install(raw: &RawTags) {
+/// Reads the enabled packs' block, item and biome tags and installs them.
+///
+/// Packs apply in the order they are enabled. Called once at startup, before
+/// the worldgen loader: datapack features name block tags, a pack's own among
+/// them. Tags do not change on `/reload`, which also sends the client none.
+pub fn install_from_packs(world_path: &Path, enabled_packs: &[String]) {
+    let datapacks = world_path.join("datapacks");
+    let mut raw = RawTags::default();
+    for pack in enabled_packs {
+        let name = pack
+            .strip_prefix("file/")
+            .or_else(|| pack.strip_prefix("minecraft:"))
+            .unwrap_or(pack);
+        let path = datapacks.join(name);
+        let Some(path) = path
+            .is_dir()
+            .then_some(path)
+            .or_else(|| super::find_bundled_datapack_dir(name))
+        else {
+            continue;
+        };
+        let Ok(namespaces) = fs::read_dir(path.join("data")) else {
+            continue;
+        };
+        let mut namespaces: Vec<_> = namespaces.flatten().map(|e| e.path()).collect();
+        namespaces.sort();
+        for namespace in namespaces {
+            let tags = namespace.join("tags");
+            if let Some(name) = namespace.file_name().and_then(|n| n.to_str())
+                && tags.is_dir()
+            {
+                load_tags_from_dir(name, &tags, &mut raw);
+            }
+        }
+    }
+    install(&raw);
+}
+
+/// Resolves the tags read and installs them, once.
+fn install(raw: &RawTags) {
     if raw.is_empty() {
         return;
     }

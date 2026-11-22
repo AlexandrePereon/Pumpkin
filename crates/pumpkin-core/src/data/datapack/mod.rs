@@ -300,8 +300,6 @@ impl DatapackManager {
         let mut all_slot_sources: HashMap<String, serde_json::Value> = HashMap::new();
         let mut all_tags: HashMap<String, HashMap<String, tag_loader::DynamicTagEntry>> =
             HashMap::new();
-        // Block and item tags installed for lookups and sync (fork).
-        let mut all_extension_tags = tag_extension_loader::RawTags::default();
 
         let mut acc = PackContentAccumulators {
             recipes: &mut all_recipes,
@@ -319,7 +317,6 @@ impl DatapackManager {
             item_modifiers: &mut all_item_modifiers,
             slot_sources: &mut all_slot_sources,
             tags: &mut all_tags,
-            extension_tags: &mut all_extension_tags,
         };
 
         scan_datapacks_dir(
@@ -332,7 +329,6 @@ impl DatapackManager {
         load_bundled_datapacks(enabled_packs, &mut acc, &mut loaded_packs_vec);
 
         let damage_type_registry = build_damage_type_registry(all_damage_type_defs);
-        tag_extension_loader::install(&all_extension_tags);
 
         recipe_manager.set_recipes(all_recipes);
         *self
@@ -1737,7 +1733,6 @@ struct PackContentAccumulators<'a> {
     item_modifiers: &'a mut HashMap<String, serde_json::Value>,
     slot_sources: &'a mut HashMap<String, serde_json::Value>,
     tags: &'a mut HashMap<String, HashMap<String, tag_loader::DynamicTagEntry>>,
-    extension_tags: &'a mut tag_extension_loader::RawTags,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -1763,7 +1758,7 @@ struct PackContentCounts {
     tags: usize,
 }
 
-fn find_bundled_datapack_dir(pack_name: &str) -> Option<PathBuf> {
+pub(super) fn find_bundled_datapack_dir(pack_name: &str) -> Option<PathBuf> {
     let sub = format!("assets/datapack/data/minecraft/datapacks/{pack_name}");
     let candidates = [
         PathBuf::from(&sub),
@@ -1977,7 +1972,6 @@ fn load_pack_contents(
                     acc.function_tags,
                 );
                 counts.tags += tag_loader::load_tags_from_dir(&namespace, &tags_dir, acc.tags);
-                tag_extension_loader::load_tags_from_dir(&namespace, &tags_dir, acc.extension_tags);
             }
             // Load game test instances
             let test_instance_dir = ns_path.join("test_instance");
@@ -2694,7 +2688,6 @@ mod tests {
         let mut item_modifiers = std::collections::HashMap::new();
         let mut slot_sources = std::collections::HashMap::new();
         let mut tags = std::collections::HashMap::new();
-        let mut extension_tags = super::tag_extension_loader::RawTags::default();
 
         let mut acc = super::PackContentAccumulators {
             recipes: &mut recipes,
@@ -2712,7 +2705,6 @@ mod tests {
             item_modifiers: &mut item_modifiers,
             slot_sources: &mut slot_sources,
             tags: &mut tags,
-            extension_tags: &mut extension_tags,
         };
 
         let counts = super::load_pack_contents(&datapack_path, &mut acc);
@@ -2776,7 +2768,6 @@ mod tests {
             let mut item_modifiers = std::collections::HashMap::new();
             let mut slot_sources = std::collections::HashMap::new();
             let mut tags = std::collections::HashMap::new();
-            let mut extension_tags = super::tag_extension_loader::RawTags::default();
 
             let mut acc = super::PackContentAccumulators {
                 recipes: &mut recipes,
@@ -2794,7 +2785,6 @@ mod tests {
                 item_modifiers: &mut item_modifiers,
                 slot_sources: &mut slot_sources,
                 tags: &mut tags,
-                extension_tags: &mut extension_tags,
             };
 
             let counts = super::load_pack_contents(&pack_path, &mut acc);

@@ -453,6 +453,12 @@ impl Server {
             });
         }
 
+        // Block tags first: datapack features name them.
+        crate::data::datapack::tag_extension_loader::install_from_packs(
+            &world_path,
+            &server.level_info.load().data_packs.enabled,
+        );
+
         // datapacks before levels: dimension types
         let enabled_packs = server.level_info.load().data_packs.enabled.clone();
         server
