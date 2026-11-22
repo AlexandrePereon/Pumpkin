@@ -1470,6 +1470,13 @@ impl Server {
             players.par_iter().for_each(|player| {
                 player.tick(self);
             });
+            // Vanilla `ChunkMap.tick` runs while frozen too: entities are
+            // tracked and their changes sent, a player's own synced data
+            // (an item in use) among them.
+            for player in players.iter() {
+                player.send_velocity_changes();
+            }
+            world.entity_tracker.update_all(world);
         }
     }
 
