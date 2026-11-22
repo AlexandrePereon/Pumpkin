@@ -8,7 +8,7 @@ use pumpkin_util::{
     random::{RandomGenerator, RandomImpl},
 };
 use pumpkin_world::{
-    generation::feature::configured_features::{CONFIGURED_FEATURES, ConfiguredFeature},
+    generation::feature::configured_features::{ConfiguredFeature, configured_feature},
     world::BlockFlags,
 };
 
@@ -207,7 +207,7 @@ impl TreeGrower {
         pos: BlockPos,
         random: &mut RandomGenerator,
     ) -> bool {
-        let Some(ConfiguredFeature::Tree(tree)) = CONFIGURED_FEATURES.get(&key) else {
+        let Some(ConfiguredFeature::Tree(tree)) = configured_feature(key) else {
             return false;
         };
         let portal = world.level.world_portal.load_full();
@@ -225,7 +225,7 @@ impl TreeGrower {
     #[must_use]
     pub fn min_height(&self) -> i32 {
         self.shortest
-            .and_then(|key| match CONFIGURED_FEATURES.get(&key) {
+            .and_then(|key| match configured_feature(key) {
                 Some(ConfiguredFeature::Tree(tree)) => {
                     Some(i32::from(tree.trunk_placer.base_height))
                 }

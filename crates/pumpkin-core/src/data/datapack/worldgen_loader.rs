@@ -4,7 +4,9 @@
 //! into the noise routers the generator uses (see
 //! [`pumpkin_world::generation::noise::router::datapack`]); `worldgen/material_rule` and
 //! `worldgen/material_condition`, with the rule a noise settings file names, into its
-//! surface rules (see [`pumpkin_world::generation::surface_datapack`]).
+//! surface rules (see [`pumpkin_world::generation::surface_datapack`]); `worldgen/feature`,
+//! `worldgen/placed_feature` and `worldgen/block_state_provider` into the features they
+//! override (see [`pumpkin_world::generation::feature::datapack`]).
 //!
 //! As in vanilla, worldgen registries are fixed for the server's lifetime: `/reload` and
 //! `/datapack enable` do not change the terrain of a running server.
@@ -12,6 +14,7 @@
 use std::fs;
 use std::path::Path;
 
+use pumpkin_world::generation::feature::datapack as feature_datapack;
 use pumpkin_world::generation::noise::router::datapack::{self, WorldgenJson, WorldgenRegistry};
 use pumpkin_world::generation::surface_datapack;
 use tracing::{info, warn};
@@ -127,5 +130,19 @@ pub fn install(world_path: &Path, enabled_packs: &[String]) {
     }
     if !surface_datapack::install(rules) {
         warn!("Datapack surface rules were installed already; this change needs a restart");
+    }
+    let (features, errors) = json.build_datapack_features();
+    for error in &errors {
+        warn!("Datapack feature kept compiled: {error}");
+    }
+    if !features.is_empty() {
+        info!(
+            "Features built from datapacks: placed {}; configured {}",
+            features.placed_names().join(", "),
+            features.configured_names().join(", ")
+        );
+    }
+    if !feature_datapack::install(features) {
+        warn!("Datapack features were installed already; this change needs a restart");
     }
 }

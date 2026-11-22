@@ -2,7 +2,7 @@ use pumpkin_data::configured_feature::ConfiguredFeature as FeatureKey;
 use pumpkin_data::placed_feature::PlacedFeature;
 use pumpkin_data::{Block, BlockId};
 use pumpkin_util::random::{RandomGenerator, xoroshiro128::Xoroshiro};
-use pumpkin_world::generation::feature::configured_features::CONFIGURED_FEATURES;
+use pumpkin_world::generation::feature::configured_features::configured_feature;
 use pumpkin_world::generation::height_limit::HeightLimitView;
 
 use crate::block::{BlockBehaviour, BlockMetadata, BonemealArgs};
@@ -36,7 +36,7 @@ impl BlockBehaviour for BonemealableFeaturePlacerBlock {
                 PlacedFeature::LushCavesVegetation,
             )
         };
-        let Some(feature) = CONFIGURED_FEATURES.get(&key) else {
+        let Some(feature) = configured_feature(key) else {
             return;
         };
         let portal = args.world.level.world_portal.load_full();

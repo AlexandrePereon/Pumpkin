@@ -3,8 +3,8 @@ use pumpkin_data::{Block, BlockId, BlockState, BlockStateId};
 use pumpkin_util::math::position::BlockPos;
 use pumpkin_util::random::{RandomGenerator, RandomImpl, xoroshiro128::Xoroshiro};
 use pumpkin_world::generation::feature::{
-    configured_features::{BONE_MEAL_FEATURES, CONFIGURED_FEATURES, ConfiguredFeature},
-    placed_features::{Feature, PLACED_FEATURES},
+    configured_features::{BONE_MEAL_FEATURES, ConfiguredFeature, configured_feature},
+    placed_features::{Feature, placed_feature},
 };
 use pumpkin_world::tick::TickPriority;
 use pumpkin_world::world::BlockFlags;
@@ -171,7 +171,7 @@ fn biome_bonemeal_state(
         .features
         .iter()
         .flat_map(|step| step.iter())
-        .filter_map(|key| PLACED_FEATURES.get(key))
+        .filter_map(|key| placed_feature(*key))
         .filter_map(|feature| match &feature.feature {
             Feature::Named(key) if BONE_MEAL_FEATURES.contains(key) => Some(*key),
             Feature::Named(_) | Feature::Inlined(_) => None,
@@ -183,7 +183,7 @@ fn biome_bonemeal_state(
 
     let mut random = RandomGenerator::Xoroshiro(Xoroshiro::from_seed(rand::rng().random()));
     let key = features[random.next_bounded_i32(features.len() as i32) as usize];
-    let ConfiguredFeature::SimpleBlock(feature) = CONFIGURED_FEATURES.get(&key)? else {
+    let ConfiguredFeature::SimpleBlock(feature) = configured_feature(key)? else {
         return None;
     };
     feature

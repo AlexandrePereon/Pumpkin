@@ -24,8 +24,8 @@ use crate::command::errors::error_types::CommandErrorType;
 use crate::command::node::dispatcher::CommandDispatcher;
 use crate::command::node::{CommandExecutor, CommandExecutorResult};
 use crate::world::block_placer::WorldBlockPlacer;
-use pumpkin_world::generation::feature::configured_features::CONFIGURED_FEATURES;
-use pumpkin_world::generation::feature::placed_features::{Feature, PLACED_FEATURES};
+use pumpkin_world::generation::feature::configured_features::configured_feature;
+use pumpkin_world::generation::feature::placed_features::{Feature, placed_feature};
 use pumpkin_world::generation::structure::structures::StructureGeneratorContext;
 use pumpkin_world::generation::structure::structures::jigsaw::{
     PoolElementStructurePiece, place_pool_element_templates,
@@ -546,12 +546,12 @@ impl CommandExecutor for PlaceFeatureExecutor {
             FEATURE_INVALID.create_without_context(TextComponent::text(feature_name.clone()))
         })?;
 
-        let placed = PLACED_FEATURES.get(&key).ok_or_else(|| {
+        let placed = placed_feature(key).ok_or_else(|| {
             FEATURE_INVALID.create_without_context(TextComponent::text(feature_name.clone()))
         })?;
 
         let configured = match &placed.feature {
-            Feature::Named(name) => CONFIGURED_FEATURES.get(name).ok_or_else(|| {
+            Feature::Named(name) => configured_feature(*name).ok_or_else(|| {
                 FEATURE_INVALID.create_without_context(TextComponent::text(feature_name.clone()))
             })?,
             Feature::Inlined(f) => f.as_ref(),
