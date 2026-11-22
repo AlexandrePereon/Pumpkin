@@ -30,20 +30,22 @@ use pumpkin_data::noise_router::{
     UnaryData, UnaryOperation, WrapperType,
 };
 use pumpkin_data::noise_settings::{GenerationShapeConfig, NoiseSettings};
-use pumpkin_data::{Block, BlockState};
+use pumpkin_data::{Block, BlockState, Property};
 use serde_json::Value;
 
-type Result<T> = std::result::Result<T, String>;
+pub(crate) type Result<T> = std::result::Result<T, String>;
 
 /// Density function references nested deeper than this are taken for a cycle.
 const MAX_DEPTH: usize = 512;
 
-/// The three worldgen registries a noise router is built from.
+/// The worldgen registries a noise router and a surface rule are built from.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum WorldgenRegistry {
     DensityFunction,
     Noise,
     NoiseSettings,
+    MaterialRule,
+    MaterialCondition,
 }
 
 impl WorldgenRegistry {
@@ -54,10 +56,18 @@ impl WorldgenRegistry {
             Self::DensityFunction => "density_function",
             Self::Noise => "noise",
             Self::NoiseSettings => "noise_settings",
+            Self::MaterialRule => "material_rule",
+            Self::MaterialCondition => "material_condition",
         }
     }
 
-    pub const ALL: [Self; 3] = [Self::DensityFunction, Self::Noise, Self::NoiseSettings];
+    pub const ALL: [Self; 5] = [
+        Self::DensityFunction,
+        Self::Noise,
+        Self::NoiseSettings,
+        Self::MaterialRule,
+        Self::MaterialCondition,
+    ];
 }
 
 /// `minecraft:` when the id has no namespace.
@@ -91,6 +101,14 @@ impl WorldgenJson {
                 WorldgenRegistry::NoiseSettings,
                 pumpkin_data::worldgen_json::NOISE_SETTINGS,
             ),
+            (
+                WorldgenRegistry::MaterialRule,
+                pumpkin_data::worldgen_json::MATERIAL_RULES,
+            ),
+            (
+                WorldgenRegistry::MaterialCondition,
+                pumpkin_data::worldgen_json::MATERIAL_CONDITIONS,
+            ),
         ];
         for (registry, table) in tables {
             for (id, text) in table {
@@ -114,11 +132,12 @@ impl WorldgenJson {
         self.entries.values().any(|(_, from_datapack)| *from_datapack)
     }
 
-    fn get(&self, registry: WorldgenRegistry, id: &str) -> Option<&(Value, bool)> {
+    /// An entry and whether a datapack gave it.
+    pub(crate) fn get(&self, registry: WorldgenRegistry, id: &str) -> Option<&(Value, bool)> {
         self.entries.get(&(registry, full_id(id)))
     }
 
-    fn ids(&self, registry: WorldgenRegistry) -> impl Iterator<Item = &str> {
+    pub(crate) fn ids(&self, registry: WorldgenRegistry) -> impl Iterator<Item = &str> {
         self.entries
             .keys()
             .filter(move |(r, _)| *r == registry)
@@ -935,37 +954,48 @@ impl Parser<'_> {
         // legacy Nether noises apart.
         let mut next_id = DoublePerlinNoiseParameters::COUNT;
         for name in names {
-            let id = full_id(&name);
-            let (value, from_datapack) = self
-                .json
-                .get(WorldgenRegistry::Noise, &id)
-                .ok_or_else(|| format!("unknown noise {id}"))?;
-            let compiled = DoublePerlinNoiseParameters::id_to_parameters(&id);
-            let parameters = if *from_datapack || compiled.is_none() {
-                self.touched |= *from_datapack;
+            let (parameters, from_datapack) = self.json.noise(&name, &mut next_id)?;
+            self.touched |= from_datapack;
+            noises.insert(name, parameters);
+        }
+        Ok(noises)
+    }
+}
+
+impl WorldgenJson {
+    /// The noise `name` resolves to, and whether a datapack gave it. A noise the datapacks
+    /// add takes the next id past `next_id`: ids only tell noises apart.
+    pub(crate) fn noise(
+        &self,
+        name: &str,
+        next_id: &mut usize,
+    ) -> Result<(DoublePerlinNoiseParameters, bool)> {
+        let id = full_id(name);
+        let (value, from_datapack) = self
+            .get(WorldgenRegistry::Noise, &id)
+            .ok_or_else(|| format!("unknown noise {id}"))?;
+        let compiled = DoublePerlinNoiseParameters::id_to_parameters(&id);
+        let parameters = match compiled {
+            Some(c) if !*from_datapack => DoublePerlinNoiseParameters::new(
+                c.id,
+                c.first_octave,
+                c.amplitudes,
+                c.lo,
+                c.hi,
+                c.string_hash,
+            ),
+            _ => {
                 let numeric_id = compiled.map_or_else(
                     || {
-                        next_id += 1;
-                        next_id
+                        *next_id += 1;
+                        *next_id
                     },
                     |c| c.id,
                 );
                 parse_noise(value, &id, numeric_id)?
-            } else if let Some(c) = compiled {
-                DoublePerlinNoiseParameters::new(
-                    c.id,
-                    c.first_octave,
-                    c.amplitudes,
-                    c.lo,
-                    c.hi,
-                    c.string_hash,
-                )
-            } else {
-                return Err(format!("unknown noise {id}"));
-            };
-            noises.insert(name, parameters);
-        }
-        Ok(noises)
+            }
+        };
+        Ok((parameters, *from_datapack))
     }
 }
 
@@ -1456,7 +1486,7 @@ impl Df {
 
 // ------------------------------------------------------------------- lowering
 
-fn leak<T>(value: T) -> &'static T {
+pub(crate) fn leak<T>(value: T) -> &'static T {
     Box::leak(Box::new(value))
 }
 
@@ -1898,18 +1928,51 @@ impl RouterRepr {
 
 // ------------------------------------------------------------------- noise settings
 
-fn block_state(value: &Value) -> Result<&'static BlockState> {
-    let name = match value {
-        Value::String(name) => name.as_str(),
-        Value::Object(obj) => obj
-            .get("Name")
-            .and_then(Value::as_str)
-            .ok_or("block state without Name")?,
+/// A block state as 26.3's `BlockState.CODEC` reads it: `"name"` (the default state), or
+/// `{"id": …, "properties": {…}}` (`StateHolder.codec`); also the older `{"Name": …,
+/// "Properties": {…}}`. As vanilla's `StateDefinition` codec, a property not given — or given
+/// a value it cannot take — keeps the default state's value, and unknown keys are ignored.
+/// Mod blocks resolve too, once the block extension is installed.
+pub(crate) fn block_state(value: &Value) -> Result<&'static BlockState> {
+    let (name, properties) = match value {
+        Value::String(name) => (name.as_str(), None),
+        Value::Object(obj) => {
+            let name = obj
+                .get("id")
+                .or_else(|| obj.get("Name"))
+                .and_then(Value::as_str)
+                .ok_or("block state without id")?;
+            let properties = obj
+                .get("properties")
+                .or_else(|| obj.get("Properties"))
+                .and_then(Value::as_object);
+            (name, properties)
+        }
         other => return Err(format!("unsupported block state {other}")),
     };
-    Block::from_name(name)
-        .map(|block| block.default_state)
-        .ok_or_else(|| format!("unknown block {name}"))
+    let block = Block::from_name(name).ok_or_else(|| format!("unknown block {name}"))?;
+    let Some(properties) = properties.filter(|p| !p.is_empty()) else {
+        return Ok(block.default_state);
+    };
+    let Some(mut props) = block.properties(block.default_state.id).map(|p| p.to_props()) else {
+        return Ok(block.default_state);
+    };
+    for slot in &mut props {
+        let key = slot.key_str();
+        if let Some(parsed) = properties
+            .get(key)
+            .and_then(Value::as_str)
+            .and_then(|value| {
+                Property::from_str_pair(key, value)
+                    .filter(|p| p.key_str() == key && p.value_str() == value)
+            })
+        {
+            *slot = parsed;
+        }
+    }
+    Ok(BlockState::from_id(
+        block.from_properties(&props).to_state_id(block),
+    ))
 }
 
 fn parameter(value: &Value) -> Result<Parameter> {

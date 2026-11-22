@@ -17,6 +17,8 @@ pub mod proto_chunk_test;
 pub mod rule;
 pub mod structure;
 mod surface;
+/// Surface rules built from datapack JSON.
+pub use surface::datapack as surface_datapack;
 
 use generator::VanillaGenerator;
 use pumpkin_data::dimension::Dimension;

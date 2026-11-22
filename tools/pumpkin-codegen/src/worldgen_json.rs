@@ -4,10 +4,12 @@ use proc_macro2::TokenStream;
 use quote::quote;
 
 /// The vanilla worldgen files a datapack can build on at runtime, embedded as JSON text.
-const REGISTRIES: [(&str, &str); 3] = [
+const REGISTRIES: [(&str, &str); 5] = [
     ("DENSITY_FUNCTIONS", "density_function"),
     ("NOISES", "noise"),
     ("NOISE_SETTINGS", "noise_settings"),
+    ("MATERIAL_RULES", "material_rule"),
+    ("MATERIAL_CONDITIONS", "material_condition"),
 ];
 
 fn collect(base: &Path, dir: &Path, out: &mut Vec<String>) {
@@ -33,8 +35,9 @@ fn collect(base: &Path, dir: &Path, out: &mut Vec<String>) {
     }
 }
 
-/// Embeds the vanilla `density_function`, `noise` and `noise_settings` JSON, so that a
-/// datapack overriding one of them can be resolved against the rest at runtime.
+/// Embeds the vanilla `density_function`, `noise`, `noise_settings`, `material_rule` and
+/// `material_condition` JSON, so that a datapack overriding one of them can be resolved
+/// against the rest at runtime.
 pub fn build() -> TokenStream {
     let worldgen = Path::new("../../assets/datapack/data/minecraft/worldgen");
     let tables = REGISTRIES.iter().map(|(name, folder)| {
@@ -45,7 +48,8 @@ pub fn build() -> TokenStream {
         let entries = files.iter().map(|rel| {
             let id = format!("minecraft:{rel}");
             // Relative to `crates/pumpkin-data/src/generated/`.
-            let path = format!("../../../../assets/datapack/data/minecraft/worldgen/{folder}/{rel}.json");
+            let path =
+                format!("../../../../assets/datapack/data/minecraft/worldgen/{folder}/{rel}.json");
             quote! { (#id, include_str!(#path)) }
         });
         let ident = quote::format_ident!("{}", name);

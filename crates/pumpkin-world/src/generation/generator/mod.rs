@@ -255,9 +255,7 @@ impl VanillaGenerator {
             },
             |d| d.settings,
         );
-        let surface_rule = settings_name
-            .and_then(MaterialRule::from_name)
-            .unwrap_or_else(|| MaterialRule::from_dimension(&dimension));
+        let surface_rule = surface_rule(settings_name, &dimension);
         let biome_supplier =
             crate::biome::ActiveBiomeSupplier::from_biome_source(biome_source, &dimension);
         let random_config = GlobalRandomConfig::new(seed.0, settings.legacy_random_source);
@@ -354,6 +352,15 @@ impl VanillaGenerator {
 
 /// The noise settings a dimension generates with when its generator names none, as
 /// `NoiseSettings::from_dimension` picks them.
+/// The surface rule a datapack built for these noise settings, else the compiled one.
+fn surface_rule(settings_name: Option<&str>, dimension: &Dimension) -> &'static MaterialRule {
+    crate::generation::surface::datapack::installed(
+        settings_name.unwrap_or_else(|| default_noise_settings_name(dimension)),
+    )
+    .or_else(|| settings_name.and_then(MaterialRule::from_name))
+    .unwrap_or_else(|| MaterialRule::from_dimension(dimension))
+}
+
 fn default_noise_settings_name(dimension: &Dimension) -> &'static str {
     if dimension == &Dimension::OVERWORLD {
         "minecraft:overworld"

@@ -2,7 +2,9 @@
 //!
 //! `worldgen/density_function`, `worldgen/noise` and `worldgen/noise_settings` are built
 //! into the noise routers the generator uses (see
-//! [`pumpkin_world::generation::noise::router::datapack`]).
+//! [`pumpkin_world::generation::noise::router::datapack`]); `worldgen/material_rule` and
+//! `worldgen/material_condition`, with the rule a noise settings file names, into its
+//! surface rules (see [`pumpkin_world::generation::surface_datapack`]).
 //!
 //! As in vanilla, worldgen registries are fixed for the server's lifetime: `/reload` and
 //! `/datapack enable` do not change the terrain of a running server.
@@ -11,6 +13,7 @@ use std::fs;
 use std::path::Path;
 
 use pumpkin_world::generation::noise::router::datapack::{self, WorldgenJson, WorldgenRegistry};
+use pumpkin_world::generation::surface_datapack;
 use tracing::{info, warn};
 
 /// Reads every `.json` under `dir` into `json`, with ids `namespace:relative/path`.
@@ -34,7 +37,10 @@ fn load_dir(
         if path.extension().is_none_or(|ext| ext != "json") {
             continue;
         }
-        let Ok(relative) = path.with_extension("").strip_prefix(base).map(Path::to_path_buf)
+        let Ok(relative) = path
+            .with_extension("")
+            .strip_prefix(base)
+            .map(Path::to_path_buf)
         else {
             continue;
         };
@@ -77,7 +83,7 @@ fn load_pack(pack: &Path, json: &mut WorldgenJson) -> usize {
     count
 }
 
-/// Builds and installs the noise settings that the enabled datapacks change.
+/// Builds and installs the noise settings and surface rules that the enabled datapacks change.
 ///
 /// Packs apply in the order `level.dat` enables them, a later one overriding an earlier one,
 /// as in vanilla. Call once, before the worlds are loaded.
@@ -110,5 +116,16 @@ pub fn install(world_path: &Path, enabled_packs: &[String]) {
     );
     if !datapack::install(built) {
         warn!("Datapack noise settings were installed already; this change needs a restart");
+    }
+    let (rules, errors) = json.build_datapack_surface_rules();
+    for error in &errors {
+        warn!("Datapack surface rule kept compiled: {error}");
+    }
+    if !rules.is_empty() {
+        let ids: Vec<&str> = rules.iter().map(|(id, _)| id.as_str()).collect();
+        info!("Surface rules built from datapacks for: {}", ids.join(", "));
+    }
+    if !surface_datapack::install(rules) {
+        warn!("Datapack surface rules were installed already; this change needs a restart");
     }
 }

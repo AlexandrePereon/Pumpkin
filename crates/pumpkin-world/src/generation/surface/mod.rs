@@ -28,6 +28,7 @@ use super::{
     },
 };
 
+pub mod datapack;
 pub mod rule;
 pub mod terrain;
 
