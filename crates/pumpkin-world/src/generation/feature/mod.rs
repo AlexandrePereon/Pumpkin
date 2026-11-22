@@ -1,3 +1,4 @@
+pub mod biome_datapack;
 pub mod configured_features;
 pub mod datapack;
 // So first we go trough all the placed features and check if we should place a feature

@@ -2,10 +2,13 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::LazyLock;
 
 use pumpkin_data::chunk::Biome;
+#[cfg(test)]
 use pumpkin_data::placed_feature::PlacedFeature;
 
+use crate::generation::feature::biome_datapack::{FeatureKey, feature_keys};
+
 // The order of biomes in this array is used by FeatureSorter to break ties between otherwise independent features.
-const OVERWORLD_BIOMES: &[&Biome] = &[
+pub const OVERWORLD_BIOMES: &[&Biome] = &[
     &Biome::MUSHROOM_FIELDS,
     &Biome::DEEP_FROZEN_OCEAN,
     &Biome::FROZEN_OCEAN,
@@ -68,7 +71,7 @@ const OVERWORLD_BIOMES: &[&Biome] = &[
 struct FeatureData {
     step: usize,
     encounter_index: usize,
-    feature: PlacedFeature,
+    feature: FeatureKey,
 }
 
 impl Ord for FeatureData {
@@ -103,22 +106,33 @@ const END_BIOMES: &[&Biome] = &[
     &Biome::END_BARRENS,
 ];
 
-static OVERWORLD_FEATURES_PER_STEP: LazyLock<Vec<Vec<PlacedFeature>>> =
+static OVERWORLD_FEATURES_PER_STEP: LazyLock<Vec<Vec<FeatureKey>>> =
     LazyLock::new(|| sort_features_per_step(OVERWORLD_BIOMES));
 static OVERWORLD_BIOME_IDS: LazyLock<HashSet<u8>> =
     LazyLock::new(|| OVERWORLD_BIOMES.iter().map(|biome| biome.id).collect());
 
-static NETHER_FEATURES_PER_STEP: LazyLock<Vec<Vec<PlacedFeature>>> =
+static NETHER_FEATURES_PER_STEP: LazyLock<Vec<Vec<FeatureKey>>> =
     LazyLock::new(|| sort_features_per_step(NETHER_BIOMES));
 static NETHER_BIOME_IDS: LazyLock<HashSet<u8>> =
     LazyLock::new(|| NETHER_BIOMES.iter().map(|biome| biome.id).collect());
 
-static END_FEATURES_PER_STEP: LazyLock<Vec<Vec<PlacedFeature>>> =
+static END_FEATURES_PER_STEP: LazyLock<Vec<Vec<FeatureKey>>> =
     LazyLock::new(|| sort_features_per_step(END_BIOMES));
 static END_BIOME_IDS: LazyLock<HashSet<u8>> =
     LazyLock::new(|| END_BIOMES.iter().map(|biome| biome.id).collect());
 
-pub fn select_features(biome_ids: &[u8], step: usize) -> Vec<(usize, PlacedFeature)> {
+/// Every biome's effective feature lists (a datapack's, else the compiled ones), by id: read
+/// once, after the datapacks' biomes are installed.
+static BIOME_FEATURES: LazyLock<HashMap<u8, Vec<Vec<FeatureKey>>>> = LazyLock::new(|| {
+    OVERWORLD_BIOMES
+        .iter()
+        .chain(NETHER_BIOMES)
+        .chain(END_BIOMES)
+        .map(|biome| (biome.id, feature_keys(biome)))
+        .collect()
+});
+
+pub fn select_features(biome_ids: &[u8], step: usize) -> Vec<(usize, FeatureKey)> {
     if biome_ids.iter().any(|b| NETHER_BIOME_IDS.contains(b)) {
         select_features_for_dimension(
             biome_ids,
@@ -142,15 +156,17 @@ fn select_features_for_dimension(
     biome_ids: &[u8],
     step: usize,
     allowed_biomes: &HashSet<u8>,
-    features_per_step: &[Vec<PlacedFeature>],
-) -> Vec<(usize, PlacedFeature)> {
+    features_per_step: &[Vec<FeatureKey>],
+) -> Vec<(usize, FeatureKey)> {
     let mut selected = HashSet::new();
 
     for biome_id in biome_ids {
         if !allowed_biomes.contains(biome_id) {
             continue;
         }
-        if let Some(features) = Biome::from_id(*biome_id).and_then(|biome| biome.features.get(step))
+        if let Some(features) = BIOME_FEATURES
+            .get(biome_id)
+            .and_then(|steps| steps.get(step))
         {
             selected.extend(features.iter().copied());
         }
@@ -166,17 +182,26 @@ fn select_features_for_dimension(
         .collect()
 }
 
-fn sort_features_per_step(biomes: &[&Biome]) -> Vec<Vec<PlacedFeature>> {
+fn sort_features_per_step(biomes: &[&Biome]) -> Vec<Vec<FeatureKey>> {
+    sort_features_per_step_with(biomes, feature_keys)
+}
+
+/// Vanilla's `FeatureSorter.buildFeaturesPerStep` over `biomes`, each listing `lists(biome)`.
+pub fn sort_features_per_step_with(
+    biomes: &[&Biome],
+    lists: impl Fn(&Biome) -> Vec<Vec<FeatureKey>>,
+) -> Vec<Vec<FeatureKey>> {
     let mut feature_indices = HashMap::new();
     let mut edges: BTreeMap<FeatureData, BTreeSet<FeatureData>> = BTreeMap::new();
     let mut max_steps = 0;
 
     for biome in biomes {
-        max_steps = max_steps.max(biome.features.len());
+        let steps = lists(biome);
+        max_steps = max_steps.max(steps.len());
         let mut biome_features = Vec::new();
 
-        for (step, features) in biome.features.iter().enumerate() {
-            for &feature in *features {
+        for (step, features) in steps.iter().enumerate() {
+            for &feature in features {
                 let next_index = feature_indices.len();
                 let encounter_index = *feature_indices.entry(feature).or_insert(next_index);
                 let data = FeatureData {
@@ -241,18 +266,20 @@ mod tests {
     fn dry_grass_uses_vanilla_global_feature_index() {
         let step = &OVERWORLD_FEATURES_PER_STEP[9];
         assert_eq!(
-            step.iter()
-                .position(|feature| *feature == PlacedFeature::PatchDryGrassDesert),
+            step.iter().position(
+                |feature| *feature == FeatureKey::Vanilla(PlacedFeature::PatchDryGrassDesert)
+            ),
             Some(72)
         );
         assert_eq!(
-            step.iter()
-                .position(|feature| *feature == PlacedFeature::PatchDryGrassBadlands),
+            step.iter().position(
+                |feature| *feature == FeatureKey::Vanilla(PlacedFeature::PatchDryGrassBadlands)
+            ),
             Some(74)
         );
         assert_eq!(
             step.iter()
-                .position(|feature| *feature == PlacedFeature::TreesJungle),
+                .position(|feature| *feature == FeatureKey::Vanilla(PlacedFeature::TreesJungle)),
             Some(10)
         );
     }
@@ -261,16 +288,14 @@ mod tests {
     fn biome_selection_keeps_global_indices_and_order() {
         let selected = select_features(&[Biome::SAVANNA.id, Biome::DESERT.id], 9);
         assert!(selected.windows(2).all(|pair| pair[0].0 < pair[1].0));
-        assert!(selected.contains(&(72, PlacedFeature::PatchDryGrassDesert)));
-        assert!(
-            !selected
-                .iter()
-                .any(|(_, feature)| { *feature == PlacedFeature::PatchDryGrassBadlands })
-        );
+        assert!(selected.contains(&(72, FeatureKey::Vanilla(PlacedFeature::PatchDryGrassDesert))));
+        assert!(!selected.iter().any(|(_, feature)| {
+            *feature == FeatureKey::Vanilla(PlacedFeature::PatchDryGrassBadlands)
+        }));
 
         let savanna_grass = selected
             .iter()
-            .find(|(_, feature)| *feature == PlacedFeature::PatchGrassSavanna)
+            .find(|(_, feature)| *feature == FeatureKey::Vanilla(PlacedFeature::PatchGrassSavanna))
             .expect("savanna grass must be selected");
         assert_eq!(savanna_grass.0, 15);
     }

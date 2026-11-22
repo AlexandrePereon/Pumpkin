@@ -733,6 +733,21 @@ fn stage_parity_hashes_with_features_from_json() {
     verify_stage_parity(0, &stages);
 }
 
+/// The overworld chunks again, every vanilla biome's feature list and carvers built from its
+/// JSON as a datapack's would be. Installs them for the whole test process: a correct build
+/// changes nothing.
+#[test]
+fn stage_parity_hashes_with_biomes_from_json() {
+    let (built, errors) =
+        crate::generation::feature::biome_datapack::tests::vanilla_biomes_as_datapack()
+            .build_datapack_biomes();
+    assert!(errors.is_empty(), "{errors:?}");
+    assert!(crate::generation::feature::biome_datapack::install(built));
+    let stages: Vec<ChunkStageDump> =
+        include_json!("../../../../../assets/tests/stage_hashes.json");
+    verify_stage_parity(0, &stages);
+}
+
 #[test]
 fn nether_stage_parity_hashes() {
     let stages: Vec<ChunkStageDump> =

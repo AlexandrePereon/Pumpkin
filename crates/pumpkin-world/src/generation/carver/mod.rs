@@ -243,14 +243,12 @@ pub fn carve(chunk: &mut ProtoChunk, generator: &VanillaGenerator) {
 
             let carvers = generator.uniform_carvers.unwrap_or_else(|| {
                 multi_noise_sampler.as_mut().map_or(&[][..], |sampler| {
-                    supplier
-                        .biome(
-                            biome_coords::from_block(section_coords::section_to_block(carver_x)),
-                            0,
-                            biome_coords::from_block(section_coords::section_to_block(carver_z)),
-                            sampler,
-                        )
-                        .carvers
+                    crate::generation::feature::biome_datapack::carvers(supplier.biome(
+                        biome_coords::from_block(section_coords::section_to_block(carver_x)),
+                        0,
+                        biome_coords::from_block(section_coords::section_to_block(carver_z)),
+                        sampler,
+                    ))
                 })
             });
 

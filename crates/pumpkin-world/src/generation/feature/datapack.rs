@@ -177,7 +177,7 @@ impl WorldgenJson {
         (built, errors)
     }
 
-    fn datapack_ids(&self, registry: WorldgenRegistry) -> Vec<String> {
+    pub(super) fn datapack_ids(&self, registry: WorldgenRegistry) -> Vec<String> {
         self.ids(registry)
             .filter(|id| self.get(registry, id).is_some_and(|(_, ours)| *ours))
             .map(str::to_string)
@@ -775,12 +775,16 @@ fn placement_modifier(value: &Value) -> Result<PlacementModifier> {
     })
 }
 
-struct FeatureParser<'j> {
+pub(super) struct FeatureParser<'j> {
     json: &'j WorldgenJson,
     depth: usize,
 }
 
 impl<'j> FeatureParser<'j> {
+    pub(super) const fn new(json: &'j WorldgenJson) -> Self {
+        Self { json, depth: 0 }
+    }
+
     fn nested<T>(&mut self, f: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
         if self.depth >= MAX_DEPTH {
             return Err("feature references nested too deep (a cycle?)".to_string());
@@ -799,7 +803,7 @@ impl<'j> FeatureParser<'j> {
             .ok_or_else(|| format!("unknown {} {id}", registry.folder()))
     }
 
-    fn placed_feature(&mut self, value: &Value) -> Result<PlacedFeature> {
+    pub(super) fn placed_feature(&mut self, value: &Value) -> Result<PlacedFeature> {
         let obj = object(value)?;
         Ok(PlacedFeature {
             feature: self.feature_ref(obj.get("feature").unwrap_or(&Value::Null))?,
@@ -845,7 +849,7 @@ impl<'j> FeatureParser<'j> {
         }
     }
 
-    fn own_placed(&mut self, id: &str) -> Result<PlacedFeature> {
+    pub(super) fn own_placed(&mut self, id: &str) -> Result<PlacedFeature> {
         let value = self.own_entry(WorldgenRegistry::PlacedFeature, id)?;
         self.nested(|p| p.placed_feature(value))
             .map_err(|e| format!("{id}: {e}"))

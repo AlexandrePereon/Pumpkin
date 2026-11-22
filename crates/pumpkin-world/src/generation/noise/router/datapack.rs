@@ -49,6 +49,7 @@ pub enum WorldgenRegistry {
     ConfiguredFeature,
     PlacedFeature,
     BlockStateProvider,
+    Biome,
 }
 
 impl WorldgenRegistry {
@@ -64,10 +65,11 @@ impl WorldgenRegistry {
             Self::ConfiguredFeature => "feature",
             Self::PlacedFeature => "placed_feature",
             Self::BlockStateProvider => "block_state_provider",
+            Self::Biome => "biome",
         }
     }
 
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::DensityFunction,
         Self::Noise,
         Self::NoiseSettings,
@@ -76,6 +78,7 @@ impl WorldgenRegistry {
         Self::ConfiguredFeature,
         Self::PlacedFeature,
         Self::BlockStateProvider,
+        Self::Biome,
     ];
 }
 

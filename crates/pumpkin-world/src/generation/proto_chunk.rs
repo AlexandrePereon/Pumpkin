@@ -22,6 +22,7 @@ use rustc_hash::FxHashMap;
 use super::{
     GlobalRandomConfig, biome_coords,
     blender::{Blender, BlenderImpl},
+    feature::biome_datapack::{self, FeatureKey},
     feature::placed_features::placed_feature,
     feature_order::select_features,
     noise::router::{
@@ -1457,22 +1458,33 @@ impl ProtoChunk {
 
             let selected = select_features(&possible_biomes, step);
 
-            for (global_index, feature_enum) in selected {
-                if let Some(feature) = placed_feature(feature_enum) {
+            for (global_index, key) in selected {
+                let (feature, feature_enum) = match key {
+                    FeatureKey::Vanilla(feature_enum) => {
+                        (placed_feature(feature_enum), feature_enum)
+                    }
+                    FeatureKey::Pack(number) => (
+                        biome_datapack::own_placed(number),
+                        biome_datapack::PACK_FEATURE_STAND_IN,
+                    ),
+                };
+                if let Some(feature) = feature {
                     let decorator_seed =
                         get_decorator_seed(population_seed, global_index as u64, step as u64);
                     let mut random =
                         RandomGenerator::Worldgen(WorldgenRandom::from_seed(decorator_seed));
 
-                    feature.generate(
-                        cache,
-                        block_registry,
-                        generation_min_y,
-                        generation_height,
-                        feature_enum,
-                        &mut random,
-                        origin_pos,
-                    );
+                    biome_datapack::decorating(key, || {
+                        feature.generate(
+                            cache,
+                            block_registry,
+                            generation_min_y,
+                            generation_height,
+                            feature_enum,
+                            &mut random,
+                            origin_pos,
+                        )
+                    });
                 }
             }
         }

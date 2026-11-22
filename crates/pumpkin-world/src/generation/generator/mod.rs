@@ -284,9 +284,10 @@ impl VanillaGenerator {
 
         let possible_biomes = biome_supplier.possible_biomes();
         let uniform_carvers = {
-            let mut iter = possible_biomes
-                .iter()
-                .filter_map(|&id| pumpkin_data::chunk::Biome::from_id(id as u8).map(|b| b.carvers));
+            let mut iter = possible_biomes.iter().filter_map(|&id| {
+                pumpkin_data::chunk::Biome::from_id(id as u8)
+                    .map(crate::generation::feature::biome_datapack::carvers)
+            });
             iter.next().map_or(Some(&[][..]), |first| {
                 iter.all(|carvers| {
                     std::ptr::eq(first, carvers)

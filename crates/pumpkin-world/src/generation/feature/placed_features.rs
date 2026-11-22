@@ -528,13 +528,7 @@ impl ConditionalPlacementModifier for BiomePlacementModifier {
         pos: BlockPos,
     ) -> bool {
         let biome = chunk.get_biome_for_terrain_gen(pos.0.x, pos.0.y, pos.0.z);
-
-        for step in biome.features {
-            if step.contains(&this_feature) {
-                return true;
-            }
-        }
-        false
+        super::biome_datapack::has_feature(biome, super::biome_datapack::top_feature(this_feature))
     }
 }
 
