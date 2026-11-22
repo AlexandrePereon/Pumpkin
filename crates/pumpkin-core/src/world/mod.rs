@@ -384,8 +384,13 @@ impl World {
         block_registry: Arc<BlockRegistry>,
         server: Weak<Server>,
     ) -> Self {
-        // TODO
-        let generation_settings = NoiseSettings::from_dimension(&dimension);
+        // The generator's own settings, which a datapack may have replaced.
+        let generation_settings = match &*level.world_gen() {
+            pumpkin_world::generation::generator::WorldGenerator::Noise(generator) => {
+                generator.settings
+            }
+            _ => NoiseSettings::from_dimension(&dimension),
+        };
 
         // POI regions are loaded from disk when queried.
         let portal_poi = portal::PortalPoiStorage::new(level.level_folder.poi_folder.clone());

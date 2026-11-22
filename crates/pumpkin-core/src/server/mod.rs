@@ -459,6 +459,13 @@ impl Server {
             .datapack_manager
             .load_all(&world_path, &enabled_packs, &server.recipe_manager);
 
+        // Terrain-shaping worldgen files are read before the worlds, which build their
+        // generators from them.
+        crate::data::datapack::worldgen_loader::install(
+            &world_path,
+            &server.level_info.load().data_packs.enabled,
+        );
+
         let mut worlds_vec = Vec::new();
         for dim in &server.dimensions {
             info!(

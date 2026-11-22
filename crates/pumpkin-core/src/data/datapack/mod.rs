@@ -15,6 +15,7 @@ pub mod tag_extension_loader;
 pub mod tag_loader;
 pub mod test_loader;
 pub mod trade_loader;
+pub mod worldgen_loader;
 
 use std::cell::Cell;
 use std::collections::HashMap;
