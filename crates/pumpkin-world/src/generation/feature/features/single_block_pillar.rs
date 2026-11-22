@@ -8,7 +8,7 @@ use crate::{
     generation::{
         block_predicate::BlockPredicate,
         block_state_provider::BlockStateProvider,
-        feature::placed_features::{PLACED_FEATURES, PlacedFeatureWrapper},
+        feature::placed_features::{PlacedFeatureWrapper, placed_feature},
         proto_chunk::GenerationCache,
     },
     world::WorldPortalExt,
@@ -48,7 +48,7 @@ impl SingleBlockPillarFeature {
         pos = pos.offset(self.direction.opposite().to_offset());
         if let Some(cap) = &self.cap_feature {
             let (cap_feature_name, placed_feature) = match cap {
-                PlacedFeatureWrapper::Named(name) => (*name, PLACED_FEATURES.get(name)),
+                PlacedFeatureWrapper::Named(name) => (*name, placed_feature(*name)),
                 PlacedFeatureWrapper::Direct(feature) => (feature_name, Some(feature)),
             };
             if let Some(feature) = placed_feature {

@@ -871,7 +871,7 @@ impl StructurePieceBase for PoolElementStructurePiece {
 
         if let Some(feature) = self.element.feature()
             && let Some(placed_feature) =
-                crate::generation::feature::placed_features::PLACED_FEATURES.get(&feature)
+                crate::generation::feature::placed_features::placed_feature(feature)
         {
             placed_feature.generate_in_proto_chunk(
                 chunk,

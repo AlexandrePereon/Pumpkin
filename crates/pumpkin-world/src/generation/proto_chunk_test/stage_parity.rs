@@ -721,6 +721,18 @@ fn stage_parity_hashes() {
     verify_stage_parity(0, &stages);
 }
 
+/// The overworld chunks again, every vanilla feature built from its JSON as a datapack's would
+/// be. Installs them for the whole test process: a correct build changes nothing.
+#[test]
+fn stage_parity_hashes_with_features_from_json() {
+    let (built, _unhandled) = crate::generation::feature::datapack::tests::vanilla_as_datapack()
+        .build_datapack_features();
+    assert!(crate::generation::feature::datapack::install(built));
+    let stages: Vec<ChunkStageDump> =
+        include_json!("../../../../../assets/tests/stage_hashes.json");
+    verify_stage_parity(0, &stages);
+}
+
 #[test]
 fn nether_stage_parity_hashes() {
     let stages: Vec<ChunkStageDump> =

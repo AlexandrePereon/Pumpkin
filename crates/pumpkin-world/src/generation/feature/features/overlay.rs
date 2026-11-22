@@ -2,7 +2,7 @@ use pumpkin_util::{math::position::BlockPos, random::RandomGenerator};
 
 use crate::{
     generation::{
-        feature::placed_features::{PLACED_FEATURES, PlacedFeatureWrapper},
+        feature::placed_features::{PlacedFeatureWrapper, placed_feature},
         proto_chunk::GenerationCache,
     },
     world::WorldPortalExt,
@@ -27,7 +27,7 @@ impl OverlayFeature {
         let mut placed_any = false;
         for feature_wrapper in &self.features {
             let (target_feature_name, placed_feature) = match feature_wrapper {
-                PlacedFeatureWrapper::Named(name) => (*name, PLACED_FEATURES.get(name)),
+                PlacedFeatureWrapper::Named(name) => (*name, placed_feature(*name)),
                 PlacedFeatureWrapper::Direct(feature) => (feature_name, Some(feature)),
             };
             if let Some(placed_feature) = placed_feature {

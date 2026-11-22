@@ -1007,3 +1007,53 @@ pub const MATERIAL_CONDITIONS: &[(&str, &str)] = &[
         ),
     ),
 ];
+pub const BLOCK_STATE_PROVIDERS: &[(&str, &str)] = &[
+    (
+        "minecraft:cave_vines_body",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/block_state_provider/cave_vines_body.json"
+        ),
+    ),
+    (
+        "minecraft:cave_vines_head",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/block_state_provider/cave_vines_head.json"
+        ),
+    ),
+    (
+        "minecraft:flower_flower_forest",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/block_state_provider/flower_flower_forest.json"
+        ),
+    ),
+    (
+        "minecraft:flower_meadow",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/block_state_provider/flower_meadow.json"
+        ),
+    ),
+    (
+        "minecraft:flower_plain",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/block_state_provider/flower_plain.json"
+        ),
+    ),
+    (
+        "minecraft:mangrove_propagule",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/block_state_provider/mangrove_propagule.json"
+        ),
+    ),
+    (
+        "minecraft:podzol_beneath_tree",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/block_state_provider/podzol_beneath_tree.json"
+        ),
+    ),
+    (
+        "minecraft:soil_beneath_tree",
+        include_str!(
+            "../../../../assets/datapack/data/minecraft/worldgen/block_state_provider/soil_beneath_tree.json"
+        ),
+    ),
+];

@@ -16,11 +16,19 @@ use crate::generation::height_provider::HeightProvider;
 use crate::generation::proto_chunk::GenerationCache;
 use crate::world::WorldPortalExt;
 
-use super::configured_features::{CONFIGURED_FEATURES, ConfiguredFeature};
+use super::configured_features::{ConfiguredFeature, configured_feature};
 
 pub static PLACED_FEATURES: LazyLock<
     HashMap<pumpkin_data::placed_feature::PlacedFeature, PlacedFeature>,
 > = LazyLock::new(build_placed_features);
+
+/// A placed feature by name: the datapacks' version if they override it, else the compiled one.
+#[must_use]
+pub fn placed_feature(
+    key: pumpkin_data::placed_feature::PlacedFeature,
+) -> Option<&'static PlacedFeature> {
+    super::datapack::installed_placed(key).or_else(|| PLACED_FEATURES.get(&key))
+}
 
 pub enum PlacedFeatureWrapper {
     Direct(PlacedFeature),
@@ -31,7 +39,7 @@ impl PlacedFeatureWrapper {
     #[must_use]
     pub fn get(&self) -> Option<&PlacedFeature> {
         match self {
-            Self::Named(name) => PLACED_FEATURES.get(name),
+            Self::Named(name) => placed_feature(*name),
             Self::Direct(feature) => Some(feature),
         }
     }
@@ -58,7 +66,7 @@ impl PlacedFeature {
         pos: BlockPos,
     ) -> bool {
         let Some(feature) = (match &self.feature {
-            Feature::Named(name) => CONFIGURED_FEATURES.get(name),
+            Feature::Named(name) => configured_feature(*name),
             Feature::Inlined(feature) => Some(feature.as_ref()),
         }) else {
             return false;
@@ -92,7 +100,7 @@ impl PlacedFeature {
         pos: BlockPos,
     ) -> bool {
         let feature = match &self.feature {
-            Feature::Named(name) => CONFIGURED_FEATURES.get(name),
+            Feature::Named(name) => configured_feature(*name),
             Feature::Inlined(feature) => Some(feature.as_ref()),
         };
 

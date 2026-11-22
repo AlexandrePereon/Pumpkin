@@ -22,7 +22,7 @@ use rustc_hash::FxHashMap;
 use super::{
     GlobalRandomConfig, biome_coords,
     blender::{Blender, BlenderImpl},
-    feature::placed_features::PLACED_FEATURES,
+    feature::placed_features::placed_feature,
     feature_order::select_features,
     noise::router::{
         multi_noise_sampler::MultiNoiseSampler, proto_noise_router::DoublePerlinNoiseBuilder,
@@ -1458,7 +1458,7 @@ impl ProtoChunk {
             let selected = select_features(&possible_biomes, step);
 
             for (global_index, feature_enum) in selected {
-                if let Some(feature) = PLACED_FEATURES.get(&feature_enum) {
+                if let Some(feature) = placed_feature(feature_enum) {
                     let decorator_seed =
                         get_decorator_seed(population_seed, global_index as u64, step as u64);
                     let mut random =

@@ -85,6 +85,15 @@ pub static CONFIGURED_FEATURES: LazyLock<
     HashMap<pumpkin_data::configured_feature::ConfiguredFeature, ConfiguredFeature>,
 > = LazyLock::new(build_configured_features);
 
+/// A configured feature by name: the datapacks' version if they override it, else the compiled
+/// one.
+#[must_use]
+pub fn configured_feature(
+    key: pumpkin_data::configured_feature::ConfiguredFeature,
+) -> Option<&'static ConfiguredFeature> {
+    super::datapack::installed_configured(key).or_else(|| CONFIGURED_FEATURES.get(&key))
+}
+
 pub static BONE_MEAL_FEATURES: LazyLock<
     HashSet<pumpkin_data::configured_feature::ConfiguredFeature>,
 > = LazyLock::new(|| {

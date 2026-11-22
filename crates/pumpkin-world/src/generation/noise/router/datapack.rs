@@ -38,7 +38,7 @@ pub(crate) type Result<T> = std::result::Result<T, String>;
 /// Density function references nested deeper than this are taken for a cycle.
 const MAX_DEPTH: usize = 512;
 
-/// The worldgen registries a noise router and a surface rule are built from.
+/// The worldgen registries the noise routers, surface rules and features are built from.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum WorldgenRegistry {
     DensityFunction,
@@ -46,6 +46,9 @@ pub enum WorldgenRegistry {
     NoiseSettings,
     MaterialRule,
     MaterialCondition,
+    ConfiguredFeature,
+    PlacedFeature,
+    BlockStateProvider,
 }
 
 impl WorldgenRegistry {
@@ -58,15 +61,21 @@ impl WorldgenRegistry {
             Self::NoiseSettings => "noise_settings",
             Self::MaterialRule => "material_rule",
             Self::MaterialCondition => "material_condition",
+            Self::ConfiguredFeature => "feature",
+            Self::PlacedFeature => "placed_feature",
+            Self::BlockStateProvider => "block_state_provider",
         }
     }
 
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 8] = [
         Self::DensityFunction,
         Self::Noise,
         Self::NoiseSettings,
         Self::MaterialRule,
         Self::MaterialCondition,
+        Self::ConfiguredFeature,
+        Self::PlacedFeature,
+        Self::BlockStateProvider,
     ];
 }
 
@@ -108,6 +117,10 @@ impl WorldgenJson {
             (
                 WorldgenRegistry::MaterialCondition,
                 pumpkin_data::worldgen_json::MATERIAL_CONDITIONS,
+            ),
+            (
+                WorldgenRegistry::BlockStateProvider,
+                pumpkin_data::worldgen_json::BLOCK_STATE_PROVIDERS,
             ),
         ];
         for (registry, table) in tables {
