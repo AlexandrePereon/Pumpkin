@@ -32,6 +32,7 @@ use pumpkin_util::math::int_provider::{
 use pumpkin_util::math::pool::Weighted;
 use pumpkin_util::math::position::BlockPos;
 use pumpkin_util::math::vector3::Vector3;
+use pumpkin_util::math::vertical_surface_type::VerticalSurfaceType;
 use pumpkin_util::y_offset::{AboveBottom, Absolute, BelowTop, RelativeToSeaLevel, YOffset};
 use serde_json::{Map, Value};
 
@@ -53,7 +54,20 @@ use super::features::weighted_random_selector::{
     WeightedRandomFeature, WeightedRandomFeatureEntry,
 };
 use super::features::{
-    bamboo::BambooFeature, sea_pickle::SeaPickleFeature, seagrass::SeagrassFeature,
+    bamboo::BambooFeature, blue_ice::BlueIceFeature, bonus_chest::BonusChestFeature,
+    chorus_plant::ChorusPlantFeature, end_gateway::EndGatewayFeature,
+    end_island::EndIslandFeature, end_platform::EndPlatformFeature,
+    end_podium::EndPodiumFeature, freeze_top_layer::FreezeTopLayerFeature,
+    huge_fungus::HugeFungusFeature, iceberg::IcebergFeature, lake::LakeFeature,
+    monster_room::DungeonFeature, multiface_growth::MultifaceGrowthFeature,
+    overlay::OverlayFeature, projected_random_patchy_square::ProjectedRandomPatchySquareFeature,
+    random_neighbor_spread::RandomNeighborSpreadFeature, root_system::RootSystemFeature,
+    sea_pickle::SeaPickleFeature, seagrass::SeagrassFeature,
+    single_block_pillar::SingleBlockPillarFeature,
+    stepped_column_cluster::SteppedColumnClusterFeature, underwater_magma::UnderwaterMagmaFeature,
+    vegetation_patch::VegetationPatchFeature, vines::VinesFeature,
+    void_start_platform::VoidStartPlatformFeature,
+    waterlogged_vegetation_patch::WaterloggedVegetationPatchFeature,
 };
 use super::placed_features::{
     BiomePlacementModifier, BlockFilterPlacementModifier, CountOnEveryLayerPlacementModifier,
@@ -91,6 +105,8 @@ use crate::generation::rule::block_state_match::BlockStateMatchRuleTest;
 use crate::generation::rule::random_block_match::RandomBlockMatchRuleTest;
 use crate::generation::rule::random_block_state_match::RandomBlockStateMatchRuleTest;
 use crate::generation::rule::tag_match::TagMatchRuleTest;
+
+mod tree;
 
 /// Feature references nested deeper than this are taken for a cycle.
 const MAX_DEPTH: usize = 64;
@@ -275,6 +291,23 @@ fn vec3(value: &Value) -> Result<Vector3<i32>> {
 
 fn block(name: &str) -> Result<&'static Block> {
     Block::from_name(name).ok_or_else(|| format!("unknown block {name}"))
+}
+
+/// One block id or a list of them, as `HolderSet<Block>` writes them inline.
+fn block_ids(value: &Value) -> Result<Vec<pumpkin_data::BlockId>> {
+    match value {
+        Value::String(name) => Ok(vec![block(name)?.id]),
+        Value::Array(names) => names
+            .iter()
+            .map(|n| {
+                n.as_str()
+                    .ok_or_else(|| format!("bad block id {n}"))
+                    .and_then(block)
+                    .map(|b| b.id)
+            })
+            .collect(),
+        other => Err(format!("bad block list {other}")),
+    }
 }
 
 fn block_tag(name: &str) -> Result<pumpkin_data::tag::Tag> {
@@ -855,6 +888,34 @@ impl<'j> FeatureParser<'j> {
             .map_err(|e| format!("{id}: {e}"))
     }
 
+    /// A placed feature held by value: written inline, or one of the datapack's own by id.
+    fn placed_value(&mut self, value: &Value) -> Result<PlacedFeature> {
+        match value {
+            Value::String(id) => self.own_placed(&full_id(id)),
+            other => self.nested(|p| p.placed_feature(other)),
+        }
+    }
+
+    fn vegetation_patch(&mut self, config: &Map<String, Value>) -> Result<VegetationPatchFeature> {
+        let get = |key: &str| config.get(key).unwrap_or(&Value::Null);
+        Ok(VegetationPatchFeature {
+            replaceable: block_predicate(get("replaceable"))?,
+            ground_state: self.block_state_provider(get("ground_state"))?,
+            vegetation_feature: Box::new(self.placed_value(get("vegetation_feature"))?),
+            surface: match get("surface").as_str().unwrap_or("floor") {
+                "floor" => VerticalSurfaceType::Floor,
+                "ceiling" => VerticalSurfaceType::Ceiling,
+                other => return Err(format!("unknown surface {other}")),
+            },
+            depth: int_provider(get("depth"))?,
+            extra_bottom_block_chance: f32_or(config, "extra_bottom_block_chance", 0.0)?,
+            vertical_range: i32_or(config, "vertical_range", 0)?,
+            vegetation_chance: f32_or(config, "vegetation_chance", 0.0)?,
+            xz_radius: int_provider(get("xz_radius"))?,
+            extra_edge_column_chance: f32_or(config, "extra_edge_column_chance", 0.0)?,
+        })
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "one arm per provider type, as the codegen"
@@ -1138,6 +1199,157 @@ impl<'j> FeatureParser<'j> {
                     feature_false: Box::new(self.placed_ref(get("feature_false"))?),
                 })
             }
+            "tree" => ConfiguredFeature::Tree(Box::new(self.tree(config)?)),
+            "fallen_tree" => ConfiguredFeature::FallenTree(self.fallen_tree(config)?),
+            // A list of placed features, or a single one written alone.
+            "overlay" => ConfiguredFeature::Overlay(OverlayFeature {
+                features: match get("features") {
+                    Value::Array(list) => list
+                        .iter()
+                        .map(|f| self.placed_ref(f))
+                        .collect::<Result<_>>()?,
+                    single => vec![self.placed_ref(single)?],
+                },
+            }),
+            "stepped_column_cluster" => {
+                ConfiguredFeature::SteppedColumnCluster(SteppedColumnClusterFeature {
+                    block: self.block_state_provider(get("block"))?,
+                    continue_through: block_predicate(get("continue_through"))?,
+                    can_replace: block_predicate(get("can_replace"))?,
+                    cannot_place_on: block_tag(
+                        str_of(config, "cannot_place_on")?
+                            .strip_prefix('#')
+                            .ok_or("\"cannot_place_on\" must be a block tag")?,
+                    )?,
+                    cluster_reach: int_provider(get("cluster_reach"))?,
+                    column_count: int_provider(get("column_count"))?,
+                    column_reach: int_provider(get("column_reach"))?,
+                    height: int_provider(get("height"))?,
+                })
+            }
+            "single_block_pillar" => {
+                ConfiguredFeature::SingleBlockPillar(SingleBlockPillarFeature {
+                    block: self.block_state_provider(get("block"))?,
+                    can_replace: block_predicate(get("can_replace"))?,
+                    direction: direction(
+                        config
+                            .get("direction")
+                            .and_then(Value::as_str)
+                            .unwrap_or("down"),
+                    )?,
+                    chance_to_continue: f32_or(config, "chance_to_continue", 1.0)?,
+                    cap_feature: match get("cap_feature") {
+                        Value::Null => None,
+                        v => Some(self.placed_ref(v)?),
+                    },
+                })
+            }
+            "projected_random_patchy_square" => ConfiguredFeature::ProjectedRandomPatchySquare(
+                ProjectedRandomPatchySquareFeature {
+                    block: self.block_state_provider(get("block"))?,
+                    project_through: block_predicate(get("project_through"))?,
+                    size: int_provider(get("size"))?,
+                    max_projection_height: i32_or(config, "max_projection_height", 0)?,
+                },
+            ),
+            "vegetation_patch" => ConfiguredFeature::VegetationPatch(self.vegetation_patch(config)?),
+            "waterlogged_vegetation_patch" => {
+                ConfiguredFeature::WaterloggedVegetationPatch(WaterloggedVegetationPatchFeature {
+                    base: self.vegetation_patch(config)?,
+                })
+            }
+            "root_system" => ConfiguredFeature::RootSystem(RootSystemFeature {
+                feature: Box::new(self.placed_value(get("feature"))?),
+                required_vertical_space_for_tree: i32_or(
+                    config,
+                    "required_vertical_space_for_tree",
+                    0,
+                )?,
+                root_radius: i32_or(config, "root_radius", 0)?,
+                root_replaceable: block_predicate(get("root_replaceable"))?,
+                root_state_provider: self.block_state_provider(get("root_state_provider"))?,
+                root_placement_attempts: i32_or(config, "root_placement_attempts", 0)?,
+                root_column_max_height: i32_or(config, "root_column_max_height", 0)?,
+                hanging_root_radius: i32_or(config, "hanging_root_radius", 0)?,
+                hanging_roots_vertical_span: i32_or(config, "hanging_roots_vertical_span", 0)?,
+                hanging_root_state_provider: self
+                    .block_state_provider(get("hanging_root_state_provider"))?,
+                hanging_root_placement_attempts: i32_or(
+                    config,
+                    "hanging_root_placement_attempts",
+                    0,
+                )?,
+                allowed_vertical_water_for_tree: i32_or(
+                    config,
+                    "allowed_vertical_water_for_tree",
+                    0,
+                )?,
+                allowed_tree_position: block_predicate(get("allowed_tree_position"))?,
+            }),
+            "huge_fungus" => ConfiguredFeature::HugeFungus(HugeFungusFeature {
+                valid_base_block: block_state(get("valid_base_block"))?,
+                stem_state: block_state(get("stem_state"))?,
+                hat_state: block_state(get("hat_state"))?,
+                decor_state: block_state(get("decor_state"))?,
+                replaceable_blocks: block_predicate(get("replaceable_blocks"))?,
+                planted: bool_or(config, "planted", false)?,
+            }),
+            "multiface_growth" => ConfiguredFeature::MultifaceGrowth(MultifaceGrowthFeature {
+                place_block: block(str_of(config, "block")?)?.id,
+                search_range: i32_or(config, "search_range", 10)?,
+                can_place_on_floor: bool_or(config, "can_place_on_floor", false)?,
+                can_place_on_ceiling: bool_or(config, "can_place_on_ceiling", false)?,
+                can_place_on_wall: bool_or(config, "can_place_on_wall", false)?,
+                chance_of_spreading: f32_or(config, "chance_of_spreading", 0.5)?,
+                can_be_placed_on: block_ids(get("can_be_placed_on"))?,
+            }),
+            "random_neighbor_spread" => {
+                ConfiguredFeature::RandomNeighborSpread(RandomNeighborSpreadFeature {
+                    block: self.block_state_provider(get("block"))?,
+                    accepted_neighbors: block_ids(get("accepted_neighbors"))?,
+                    can_replace: block_predicate(get("can_replace"))?,
+                    attempts: int_provider(get("attempts"))?,
+                    xz_offset: int_provider(get("xz_offset"))?,
+                    y_offset: int_provider(get("y_offset"))?,
+                })
+            }
+            "underwater_magma" => ConfiguredFeature::UnderwaterMagma(UnderwaterMagmaFeature {
+                floor_search_range: i32_or(config, "floor_search_range", 0)?,
+                placement_radius: i32_or(config, "placement_radius_around_floor", 0)?,
+                placement_probability: f32_or(
+                    config,
+                    "placement_probability_per_valid_position",
+                    0.0,
+                )?,
+            }),
+            // Pumpkin's lake reads only its two providers; the predicates are not ported.
+            "lake" => ConfiguredFeature::Lake(LakeFeature {
+                fluid: self.block_state_provider(get("fluid"))?,
+                barrier: self.block_state_provider(get("barrier"))?,
+            }),
+            "iceberg" => ConfiguredFeature::Iceberg(IcebergFeature {
+                main_block: block_state_codec(get("state"))?,
+            }),
+            "end_podium" => {
+                ConfiguredFeature::EndPodium(EndPodiumFeature::new(bool_or(config, "active", false)?))
+            }
+            "end_gateway" => ConfiguredFeature::EndGateway(EndGatewayFeature {
+                exit: match get("exit") {
+                    Value::Null => None,
+                    v => Some(BlockPos(vec3(v)?)),
+                },
+                exact: bool_or(config, "exact", false)?,
+            }),
+            // Types without a configuration.
+            "monster_room" => ConfiguredFeature::MonsterRoom(DungeonFeature),
+            "freeze_top_layer" => ConfiguredFeature::FreezeTopLayer(FreezeTopLayerFeature),
+            "blue_ice" => ConfiguredFeature::BlueIce(BlueIceFeature),
+            "chorus_plant" => ConfiguredFeature::ChorusPlant(ChorusPlantFeature),
+            "end_platform" => ConfiguredFeature::EndPlatform(EndPlatformFeature),
+            "end_island" => ConfiguredFeature::EndIsland(EndIslandFeature),
+            "void_start_platform" => ConfiguredFeature::VoidStartPlatform(VoidStartPlatformFeature),
+            "bonus_chest" => ConfiguredFeature::BonusChest(BonusChestFeature),
+            "vines" => ConfiguredFeature::Vines(VinesFeature),
             other => return Err(format!("unsupported feature type {other}")),
         })
     }
@@ -1211,13 +1423,39 @@ pub(crate) mod tests {
                 "{key:?}"
             );
         }
+        // `random_block` is a provider Pumpkin lacks (the codegen places air for it).
         assert!(
-            errors
-                .iter()
-                .all(|e| e.contains("unsupported feature type")),
+            errors.iter().all(|e| e.contains("unsupported feature type")
+                || e.ends_with("unsupported block state provider random_block")),
             "{errors:?}"
         );
-        assert!(built.configured.len() > 100, "{}", built.configured.len());
+        // What is still left compiled, by the type that stops it (its own or a nested one).
+        let mut refused: Vec<&str> = errors
+            .iter()
+            .filter_map(|e| e.split_once("unsupported feature type ").map(|(_, ty)| ty))
+            .collect();
+        refused.sort_unstable();
+        refused.dedup();
+        assert_eq!(
+            refused,
+            [
+                "coral_tree",
+                "delta_feature",
+                "end_spike",
+                "fossil",
+                "geode",
+                "huge_brown_mushroom",
+                "huge_red_mushroom",
+                "large_dripstone",
+                "sequence",
+                "speleothem",
+                "speleothem_cluster",
+                "spike",
+                "template",
+            ],
+            "{errors:?}"
+        );
+        assert!(built.configured.len() > 200, "{}", built.configured.len());
 
         // Ores, field for field.
         let (Some(ConfiguredFeature::Ore(ours)), Some(ConfiguredFeature::Ore(compiled))) = (
@@ -1233,6 +1471,68 @@ pub(crate) mod tests {
         );
         let states = |f: &OreFeature| f.targets.iter().map(|t| t.state.id).collect::<Vec<_>>();
         assert_eq!(states(ours), states(compiled));
+    }
+
+    #[test]
+    fn vanilla_json_rebuilds_the_compiled_trees() {
+        let (built, _) = vanilla_as_datapack().build_datapack_features();
+        let mut trees = 0;
+        for (key, feature) in &built.configured {
+            let (ConfiguredFeature::Tree(ours), Some(ConfiguredFeature::Tree(compiled))) =
+                (feature, CONFIGURED_FEATURES.get(key))
+            else {
+                continue;
+            };
+            trees += 1;
+            let (a, b) = (&ours.trunk_placer, &compiled.trunk_placer);
+            assert_eq!(
+                (a.base_height, a.height_rand_a, a.height_rand_b),
+                (b.base_height, b.height_rand_a, b.height_rand_b),
+                "{key:?}"
+            );
+            assert_eq!(discriminant(&a.r#type), discriminant(&b.r#type), "{key:?}");
+            assert_eq!(
+                discriminant(&ours.foliage_placer.r#type),
+                discriminant(&compiled.foliage_placer.r#type),
+                "{key:?}"
+            );
+            assert_eq!(
+                discriminant(&ours.minimum_size.r#type),
+                discriminant(&compiled.minimum_size.r#type),
+                "{key:?}"
+            );
+            assert_eq!(
+                ours.minimum_size.min_clipped_height,
+                compiled.minimum_size.min_clipped_height,
+                "{key:?}"
+            );
+            assert_eq!(ours.ignore_vines, compiled.ignore_vines, "{key:?}");
+            assert_eq!(
+                ours.decorators.iter().map(discriminant).collect::<Vec<_>>(),
+                compiled.decorators.iter().map(discriminant).collect::<Vec<_>>(),
+                "{key:?}"
+            );
+            assert_eq!(
+                ours.root_placer.is_some(),
+                compiled.root_placer.is_some(),
+                "{key:?}"
+            );
+            let state = |p: &BlockStateProvider| match p {
+                BlockStateProvider::Simple(s) => Some(s.state.id),
+                _ => None,
+            };
+            assert_eq!(
+                state(&ours.trunk_provider),
+                state(&compiled.trunk_provider),
+                "{key:?}"
+            );
+            assert_eq!(
+                state(&ours.foliage_provider),
+                state(&compiled.foliage_provider),
+                "{key:?}"
+            );
+        }
+        assert_eq!(trees, 45);
     }
 
     #[test]
@@ -1262,15 +1562,15 @@ pub(crate) mod tests {
         // A feature type this reader does not handle keeps the compiled one.
         json.insert_from_datapack(
             WorldgenRegistry::ConfiguredFeature,
-            "minecraft:oak",
-            serde_json::json!({"type": "minecraft:tree", "config": {}}),
+            "minecraft:amethyst_geode",
+            serde_json::json!({"type": "minecraft:geode", "config": {}}),
         );
         let (built, errors) = json.build_datapack_features();
 
         assert_eq!(built.placed_names(), ["ore_diamond"]);
         assert!(built.configured.is_empty());
         assert_eq!(errors.len(), 1, "{errors:?}");
-        assert!(errors[0].starts_with("minecraft:oak: unsupported feature type"));
+        assert!(errors[0].starts_with("minecraft:amethyst_geode: unsupported feature type"));
 
         let placed = &built.placed[&PlacedFeatureKey::OreDiamond];
         assert_eq!(placed.placement.len(), 2);

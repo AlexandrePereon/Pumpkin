@@ -731,6 +731,13 @@ fn stage_parity_hashes_with_features_from_json() {
     let stages: Vec<ChunkStageDump> =
         include_json!("../../../../../assets/tests/stage_hashes.json");
     verify_stage_parity(0, &stages);
+    // The nether's and the End's own types (fungi, overlays, chorus, islands) as well.
+    let nether: Vec<ChunkStageDump> =
+        include_json!("../../../../../assets/tests/nether_stage_hashes.json");
+    verify_stage_parity(0, &nether);
+    let end: Vec<ChunkStageDump> =
+        include_json!("../../../../../assets/tests/end_stage_hashes.json");
+    verify_stage_parity(0, &end);
 }
 
 /// The overworld chunks again, every vanilla biome's feature list and carvers built from its
