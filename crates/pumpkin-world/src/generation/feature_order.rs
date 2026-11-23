@@ -109,9 +109,16 @@ const END_BIOMES: &[&Biome] = &[
 
 /// The overworld's biomes as the feature sorter visits them: a datapack source's, in the
 /// order its list first names them (vanilla's `possibleBiomes`), else vanilla's.
+/// A biome replacer's biomes (`biome::BiomeReplacer`) come after the source's.
 fn overworld_biomes() -> Vec<&'static Biome> {
-    datapack_biomes(DatapackDimension::Overworld)
-        .map_or_else(|| OVERWORLD_BIOMES.to_vec(), <[&Biome]>::to_vec)
+    let mut biomes = datapack_biomes(DatapackDimension::Overworld)
+        .map_or_else(|| OVERWORLD_BIOMES.to_vec(), <[&Biome]>::to_vec);
+    for biome in crate::biome::overworld_replacement_biomes() {
+        if !biomes.contains(biome) {
+            biomes.push(biome);
+        }
+    }
+    biomes
 }
 
 /// The nether's, likewise.

@@ -110,6 +110,12 @@ struct Builder<'j> {
     parser: FeatureParser<'j>,
     own: Vec<(Option<String>, PlacedFeature)>,
     own_ids: HashMap<String, u16>,
+    /// Building a pack's own biome: a named placed feature that cannot be read keeps its
+    /// place in the list as a feature placing nothing (its error noted in `stubbed`), rather
+    /// than failing the biome. A pack's own biome has no compiled list to fall back on, and
+    /// every feature counts in the global feature order and so in the others' seeds.
+    placeholders: bool,
+    stubbed: Vec<String>,
 }
 
 impl Builder<'_> {
@@ -139,10 +145,19 @@ impl Builder<'_> {
                 if let Some(number) = self.own_ids.get(&id) {
                     return Ok(FeatureKey::Pack(*number));
                 }
-                let feature = self
-                    .parser
-                    .own_placed(&id)
-                    .map_err(|e| format!("{id}: {e}"))?;
+                let feature = match self.parser.own_placed(&id) {
+                    Ok(feature) => feature,
+                    Err(error) if self.placeholders => {
+                        self.stubbed.push(format!("{id}: {error}"));
+                        PlacedFeature {
+                            feature: super::placed_features::Feature::Inlined(Box::new(
+                                super::configured_features::ConfiguredFeature::NoOp,
+                            )),
+                            placement: Vec::new(),
+                        }
+                    }
+                    Err(error) => return Err(format!("{id}: {error}")),
+                };
                 self.new_own(Some(id), feature)
             }
             Value::Object(_) => {
@@ -200,6 +215,8 @@ impl WorldgenJson {
             parser: FeatureParser::new(self),
             own: Vec::new(),
             own_ids: HashMap::new(),
+            placeholders: false,
+            stubbed: Vec::new(),
         };
         for id in self.datapack_ids(WorldgenRegistry::Biome) {
             let Some(biome) = known_biome(&id) else {
@@ -213,6 +230,7 @@ impl WorldgenJson {
             };
             // A failed file leaves no feature of its own behind.
             let (own_before, ids_before) = (builder.own.len(), builder.own_ids.clone());
+            builder.placeholders = !id.starts_with("minecraft:");
             match builder.biome(value) {
                 Ok((features, carvers)) => {
                     built.features.insert(biome.id, features);
@@ -228,6 +246,12 @@ impl WorldgenJson {
         }
         built.own = builder.own;
         built.names.sort_unstable();
+        errors.extend(
+            builder
+                .stubbed
+                .into_iter()
+                .map(|e| format!("placed feature kept as one placing nothing: {e}")),
+        );
         (built, errors)
     }
 }

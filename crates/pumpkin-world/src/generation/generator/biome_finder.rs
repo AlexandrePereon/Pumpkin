@@ -159,6 +159,13 @@ pub fn possible_biomes(dimension: &Dimension) -> FxHashSet<u8> {
             Some(biomes) => out.extend(biomes.iter().map(|biome| biome.id)),
             None => collect_tree_biomes(compiled, &mut out),
         }
+        if datapack == DatapackDimension::Overworld {
+            out.extend(
+                crate::biome::overworld_replacement_biomes()
+                    .iter()
+                    .map(|biome| biome.id),
+            );
+        }
     }
     out
 }

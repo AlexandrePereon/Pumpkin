@@ -282,6 +282,58 @@ pub fn datapack_biomes(dimension: DatapackDimension) -> Option<&'static [&'stati
         .map(|source| source.biomes.as_slice())
 }
 
+/// Replaces the biome the overworld's multi-noise source picked, position by position.
+///
+/// A biome placement library's hook (Biolith hooks vanilla's `MultiNoiseBiomeSource` the same
+/// way, after its parameter search). Registered once, early; started once the packs' biomes
+/// are installed and before the worlds are created.
+pub trait BiomeReplacer: Send + Sync {
+    /// The world's seed and folder, once, before any lookup. Returns the biomes it may place:
+    /// they join the overworld's possible biomes (and so the feature order) after the
+    /// source's own, in this order, as a placement library writes them into vanilla's
+    /// parameter list. An empty list leaves the source as it is (the hook stays inactive).
+    fn start(&self, seed: u64, level_folder: &std::path::Path) -> Vec<&'static Biome>;
+
+    /// The biome at quart position (`x`, `y`, `z`) where the source picked `biome`.
+    fn replace(&self, x: i32, y: i32, z: i32, biome: &'static Biome) -> &'static Biome;
+}
+
+static OVERWORLD_REPLACER: OnceLock<Box<dyn BiomeReplacer>> = OnceLock::new();
+/// What the started replacer may place; empty when none is registered or it declined.
+static OVERWORLD_REPLACEMENT_BIOMES: OnceLock<Vec<&'static Biome>> = OnceLock::new();
+
+/// Registers the overworld's biome replacer. Returns false if one already is.
+pub fn register_overworld_replacer(replacer: Box<dyn BiomeReplacer>) -> bool {
+    OVERWORLD_REPLACER.set(replacer).is_ok()
+}
+
+/// Starts the registered replacer, if any: once, after the packs' biomes are installed and
+/// before the worlds (and the feature order) are built.
+pub fn start_overworld_replacer(seed: u64, level_folder: &std::path::Path) {
+    OVERWORLD_REPLACEMENT_BIOMES.get_or_init(|| {
+        OVERWORLD_REPLACER
+            .get()
+            .map(|replacer| replacer.start(seed, level_folder))
+            .unwrap_or_default()
+    });
+}
+
+/// The biomes the overworld's replacer may place (empty without an active one): possible
+/// biomes of the overworld beyond its source's.
+#[must_use]
+pub fn overworld_replacement_biomes() -> &'static [&'static Biome] {
+    OVERWORLD_REPLACEMENT_BIOMES.get().map_or(&[], Vec::as_slice)
+}
+
+fn replace_overworld_biome(x: i32, y: i32, z: i32, biome: &'static Biome) -> &'static Biome {
+    if overworld_replacement_biomes().is_empty() {
+        return biome;
+    }
+    OVERWORLD_REPLACER
+        .get()
+        .map_or(biome, |replacer| replacer.replace(x, y, z, biome))
+}
+
 thread_local! {
     /// A shortcut; check if last used biome is what we should use.
     ///
@@ -359,8 +411,14 @@ impl BiomeSupplier for MultiNoiseBiomeSupplier {
                 .get()
                 .map_or_else(|| &*NETHER_FLAT_TREE, |source| &source.flat),
         };
-        LAST_FLAT_LEAF
-            .with_borrow_mut(|last_result| flat_tree.get(self.flat_kind, &point_list, last_result))
+        let biome = LAST_FLAT_LEAF
+            .with_borrow_mut(|last_result| flat_tree.get(self.flat_kind, &point_list, last_result));
+        match self.flat_kind {
+            FlatTreeKind::Overworld | FlatTreeKind::DatapackOverworld => {
+                replace_overworld_biome(x, y, z, biome)
+            }
+            FlatTreeKind::Nether | FlatTreeKind::DatapackNether => biome,
+        }
     }
 }
 
@@ -425,6 +483,16 @@ impl ActiveBiomeSupplier {
             Self::MultiNoise(supplier) => {
                 let mut biomes = FxHashSet::default();
                 collect(supplier.source, &mut biomes);
+                if matches!(
+                    supplier.flat_kind,
+                    FlatTreeKind::Overworld | FlatTreeKind::DatapackOverworld
+                ) {
+                    biomes.extend(
+                        overworld_replacement_biomes()
+                            .iter()
+                            .map(|biome| u16::from(biome.id)),
+                    );
+                }
                 biomes
             }
             Self::End(_) => end::TheEndBiomeSupplier::POSSIBLE_BIOMES
