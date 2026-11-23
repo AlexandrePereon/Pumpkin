@@ -59,6 +59,9 @@ pub enum StructureKeys {
     AbandonedCampTaiga,
     AbandonedCampWindsweptForest,
     AbandonedCampWoodedBadlands,
+    #[doc = r" A structure installed at runtime, past the generated ones (see"]
+    #[doc = r" `structure_extension`)."]
+    Extension(u16),
 }
 impl StructureKeys {
     pub fn from_name(name: &str) -> Option<Self> {
@@ -120,7 +123,7 @@ impl StructureKeys {
             "village_savanna" => Some(Self::VillageSavanna),
             "village_snowy" => Some(Self::VillageSnowy),
             "village_taiga" => Some(Self::VillageTaiga),
-            _ => None,
+            _ => crate::structure_extension::key_by_name(name),
         }
     }
     #[must_use]
@@ -178,6 +181,7 @@ impl StructureKeys {
             Self::VillageSavanna => "village_savanna",
             Self::VillageSnowy => "village_snowy",
             Self::VillageTaiga => "village_taiga",
+            Self::Extension(index) => crate::structure_extension::name(*index),
         }
     }
     #[must_use]
@@ -2037,6 +2041,7 @@ impl Structure {
             StructureKeys::VillageSavanna => &Self::VILLAGE_SAVANNA,
             StructureKeys::VillageSnowy => &Self::VILLAGE_SNOWY,
             StructureKeys::VillageTaiga => &Self::VILLAGE_TAIGA,
+            StructureKeys::Extension(index) => crate::structure_extension::structure(index),
         }
     }
 }

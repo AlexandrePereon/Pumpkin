@@ -336,6 +336,9 @@ pub mod status_effect;
 pub mod structures;
 
 #[cfg(feature = "structures")]
+pub mod structure_extension;
+
+#[cfg(feature = "structures")]
 #[rustfmt::skip]
 #[path = "generated/template_pool.rs"]
 pub mod template_pool;

@@ -866,6 +866,9 @@ pub fn build() -> TokenStream {
             AbandonedCampTaiga,
             AbandonedCampWindsweptForest,
             AbandonedCampWoodedBadlands,
+            /// A structure installed at runtime, past the generated ones (see
+            /// `structure_extension`).
+            Extension(u16),
         }
 
         impl StructureKeys {
@@ -873,7 +876,7 @@ pub fn build() -> TokenStream {
                 let name = name.strip_prefix("minecraft:").unwrap_or(name);
                 match name {
                     #(#structure_from_name_arms)*
-                    _ => None,
+                    _ => crate::structure_extension::key_by_name(name),
                 }
             }
 
@@ -881,6 +884,7 @@ pub fn build() -> TokenStream {
             pub const fn to_name(&self) -> &'static str {
                 match self {
                     #(#structure_to_name_arms)*
+                    Self::Extension(index) => crate::structure_extension::name(*index),
                 }
             }
 
@@ -1189,6 +1193,7 @@ pub fn build() -> TokenStream {
             pub const fn get(key: &StructureKeys) -> &'static Self {
                 match *key {
                     #structure_lookup_arms
+                    StructureKeys::Extension(index) => crate::structure_extension::structure(index),
                 }
             }
         }
