@@ -474,6 +474,10 @@ impl Server {
         // Terrain-shaping worldgen files are read before the worlds, which build their
         // generators from them.
         crate::data::datapack::worldgen_loader::install(worldgen);
+        // A biome placement library's replacer (a port's), now that the packs' biomes are
+        // installed: before the worlds, whose feature order counts the biomes it places.
+        #[expect(clippy::cast_sign_loss, reason = "the seed's bits, as vanilla's long")]
+        pumpkin_world::biome::start_overworld_replacer(seed as u64, &world_path);
 
         let mut worlds_vec = Vec::new();
         for dim in &server.dimensions {

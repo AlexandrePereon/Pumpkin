@@ -237,7 +237,11 @@ pub fn install(loaded: LoadedWorldgen) {
     }
     let (biomes, errors) = json.build_datapack_biomes();
     for error in &errors {
-        warn!("Datapack biome kept compiled: {error}");
+        if error.starts_with("placed feature kept") {
+            warn!("Datapack biome: {error}");
+        } else {
+            warn!("Datapack biome kept compiled: {error}");
+        }
     }
     if !biomes.is_empty() {
         info!(
