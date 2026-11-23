@@ -15,6 +15,7 @@ use std::path::Path;
 
 use pumpkin_data::Block;
 use pumpkin_data::biome::Biome;
+use pumpkin_data::entity::EntityType;
 use pumpkin_data::item::Item;
 use pumpkin_data::tag::{RegistryKey, get_latest_map, get_tag_includes};
 use pumpkin_data::tag_extension::{self, ExtensionTag};
@@ -22,12 +23,14 @@ use serde::Deserialize;
 use tracing::{info, warn};
 
 /// The registries whose tags are read, by their folder names under `tags/`.
-const REGISTRIES: [(&str, RegistryKey); 5] = [
+const REGISTRIES: [(&str, RegistryKey); 7] = [
     ("block", RegistryKey::Block),
     ("blocks", RegistryKey::Block),
     ("item", RegistryKey::Item),
     ("items", RegistryKey::Item),
     ("worldgen/biome", RegistryKey::WorldgenBiome),
+    ("entity_type", RegistryKey::EntityType),
+    ("entity_types", RegistryKey::EntityType),
 ];
 
 #[derive(Deserialize)]
@@ -236,6 +239,7 @@ impl<'a> Resolver<'a> {
         match self.key {
             RegistryKey::Block => Block::from_name(name).map(|block| block.id.as_u16()),
             RegistryKey::Item => Item::from_registry_key(name).map(|item| item.id),
+            RegistryKey::EntityType => EntityType::from_name(name).map(|entity| entity.id),
             // Vanilla's, or a pack's own once installed (before the tags are read).
             RegistryKey::WorldgenBiome => {
                 Biome::from_name(name.strip_prefix("minecraft:").unwrap_or(name))
