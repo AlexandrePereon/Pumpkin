@@ -309,10 +309,12 @@ impl CommandExecutor for LocateBiomeExecutor {
         let searched = context.get_argument::<ResourceOrTag>(ARG_BIOME)?.clone();
 
         let targets: FxHashSet<u8> = match &searched {
-            ResourceOrTag::Resource(id) => Biome::from_name(id.path())
-                .map(|biome| biome.id)
-                .into_iter()
-                .collect(),
+            ResourceOrTag::Resource(id) => {
+                { pumpkin_data::biome_extension::from_full_id(&id.to_string()) }
+                    .map(|biome| biome.id)
+                    .into_iter()
+                    .collect()
+            }
             ResourceOrTag::Tag(id) => {
                 tag::get_tag_values(RegistryKey::WorldgenBiome, &id.to_string())
                     .into_iter()
@@ -353,7 +355,7 @@ impl CommandExecutor for LocateBiomeExecutor {
             context,
             translation::java::COMMANDS_LOCATE_BIOME_SUCCESS,
             translation::bedrock::COMMANDS_LOCATE_BIOME_SUCCESS,
-            result_name(&searched, &format!("minecraft:{}", biome.registry_id)),
+            result_name(&searched, &pumpkin_data::biome_extension::full_id(biome)),
             &target,
             true,
             distance,

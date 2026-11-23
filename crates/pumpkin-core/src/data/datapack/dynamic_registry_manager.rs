@@ -180,6 +180,9 @@ impl DynamicRegistryManager {
                 order_guard.push(reg_id);
             }
         }
+        if let Some(biomes) = reg_guard.get("minecraft:worldgen/biome") {
+            check_pack_biome_ids(&biomes.entries);
+        }
     }
 
     fn find_registry<'a>(
@@ -276,6 +279,26 @@ impl DynamicRegistryManager {
             }
         }
         result
+    }
+}
+
+/// The datapacks' own biomes were numbered at startup in the order this registry appends
+/// them (`pumpkin_world::biome::datapack::own_biome_ids`); chunk palettes carry those ids, so
+/// the client must get the same list.
+fn check_pack_biome_ids(entries: &[RegistryEntryData]) {
+    let name = |id: &str| id.strip_prefix("minecraft:").unwrap_or(id).to_string();
+    for biome in pumpkin_data::biome_extension::biomes() {
+        let sent = entries
+            .get(usize::from(biome.id))
+            .map(|e| name(&e.entry_id));
+        if sent.as_deref() != Some(name(biome.registry_id).as_str()) {
+            tracing::error!(
+                "Datapack biome {} has id {} but the synced registry has {:?} there: clients will see the wrong biomes",
+                biome.registry_id,
+                biome.id,
+                sent
+            );
+        }
     }
 }
 

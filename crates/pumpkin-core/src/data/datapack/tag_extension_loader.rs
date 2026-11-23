@@ -236,11 +236,11 @@ impl<'a> Resolver<'a> {
         match self.key {
             RegistryKey::Block => Block::from_name(name).map(|block| block.id.as_u16()),
             RegistryKey::Item => Item::from_registry_key(name).map(|item| item.id),
-            // Biomes are a compiled set: a tag can name only vanilla's.
-            RegistryKey::WorldgenBiome => name
-                .strip_prefix("minecraft:")
-                .and_then(Biome::from_name)
-                .map(|biome| u16::from(biome.id)),
+            // Vanilla's, or a pack's own once installed (before the tags are read).
+            RegistryKey::WorldgenBiome => {
+                Biome::from_name(name.strip_prefix("minecraft:").unwrap_or(name))
+                    .map(|biome| u16::from(biome.id))
+            }
             _ => None,
         }
     }

@@ -453,7 +453,13 @@ impl Server {
             });
         }
 
-        // Block tags first: datapack features name them.
+        // The packs' own biomes first: tags and features name them.
+        let worldgen = crate::data::datapack::worldgen_loader::load(
+            &world_path,
+            &server.level_info.load().data_packs.enabled,
+        );
+        crate::data::datapack::worldgen_loader::install_biomes(&worldgen);
+        // Block tags next: datapack features name them.
         crate::data::datapack::tag_extension_loader::install_from_packs(
             &world_path,
             &server.level_info.load().data_packs.enabled,
@@ -467,10 +473,7 @@ impl Server {
 
         // Terrain-shaping worldgen files are read before the worlds, which build their
         // generators from them.
-        crate::data::datapack::worldgen_loader::install(
-            &world_path,
-            &server.level_info.load().data_packs.enabled,
-        );
+        crate::data::datapack::worldgen_loader::install(worldgen);
 
         let mut worlds_vec = Vec::new();
         for dim in &server.dimensions {

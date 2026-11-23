@@ -63,9 +63,8 @@ impl ArgumentType<CommandSource> for ResourceKeyArgument {
                 .filter_and_suggest_iter(advancements.iter().map(ToString::to_string))
                 .build()
         } else if self.0 == BIOME_REGISTRY {
-            let biomes = pumpkin_data::biome::Biome::ALL
-                .iter()
-                .map(|biome| format!("minecraft:{}", biome.registry_id));
+            let biomes =
+                pumpkin_data::biome_extension::all().map(pumpkin_data::biome_extension::full_id);
             suggestions_builder.filter_and_suggest_iter(biomes).build()
         } else {
             Suggestions::empty()
@@ -124,11 +123,12 @@ impl ResourceKeyArgument {
     ) -> Result<&'static pumpkin_data::biome::Biome, CommandSyntaxError> {
         let resource_key: &ResourceKey =
             Self::get_registry_key(context, name, BIOME_REGISTRY, &ERROR_INVALID_BIOME)?;
-        let path = resource_key.identifier.path();
-        pumpkin_data::biome::Biome::from_name(path).ok_or_else(|| {
-            ERROR_INVALID_BIOME
-                .create_without_context(TextComponent::text(resource_key.identifier.to_string()))
-        })
+        pumpkin_data::biome_extension::from_full_id(&resource_key.identifier.to_string())
+            .ok_or_else(|| {
+                ERROR_INVALID_BIOME.create_without_context(TextComponent::text(
+                    resource_key.identifier.to_string(),
+                ))
+            })
     }
 
     /// Returns a [`CommandContext`]'s parsed resource key argument in the form of a [`ResourceKey`].

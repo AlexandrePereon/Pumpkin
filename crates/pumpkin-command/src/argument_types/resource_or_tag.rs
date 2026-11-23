@@ -51,7 +51,7 @@ impl ResourceOrTag {
     pub fn biome_ids(&self) -> Vec<u8> {
         use pumpkin_data::biome::Biome;
         match self {
-            Self::Resource(id) => Biome::from_name(id.path())
+            Self::Resource(id) => pumpkin_data::biome_extension::from_full_id(&id.to_string())
                 .map(|b| b.id)
                 .into_iter()
                 .collect(),
@@ -87,9 +87,8 @@ fn suggest_for_registry(registry: &Identifier, builder: SuggestionsBuilder) -> S
             .filter_and_suggest_iter(structures.chain(tag_names(RegistryKey::WorldgenStructure)))
             .build()
     } else if *registry == BIOME_REGISTRY {
-        let biomes = pumpkin_data::biome::Biome::ALL
-            .iter()
-            .map(|biome| format!("minecraft:{}", biome.registry_id));
+        let biomes =
+            pumpkin_data::biome_extension::all().map(pumpkin_data::biome_extension::full_id);
         builder
             .filter_and_suggest_iter(biomes.chain(tag_names(RegistryKey::WorldgenBiome)))
             .build()
@@ -182,8 +181,7 @@ impl<S: crate::source::CommandSource> ArgumentType<S> for ResourceOrTagArgument 
         match &value {
             ResourceOrTag::Resource(id) => {
                 if self.0 == BIOME_REGISTRY
-                    && !(id.is_vanilla()
-                        && pumpkin_data::biome::Biome::from_name(id.path()).is_some())
+                    && pumpkin_data::biome_extension::from_full_id(&id.to_string()).is_none()
                 {
                     return Err(ERROR_UNKNOWN_RESOURCE.create_without_context(
                         TextComponent::text(id.to_string()),
