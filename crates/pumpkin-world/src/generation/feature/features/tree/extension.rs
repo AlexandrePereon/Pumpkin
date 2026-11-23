@@ -217,6 +217,10 @@ impl BlockAccessor for DynCache<'_> {
     fn get_block_and_state(&self, position: &BlockPos) -> (&'static Block, &'static BlockState) {
         BlockAccessor::get_block_and_state(self.0, position)
     }
+
+    fn unlit_generation_brightness(&self) -> Option<u8> {
+        BlockAccessor::unlit_generation_brightness(self.0)
+    }
 }
 
 impl GenerationCache for DynCache<'_> {
