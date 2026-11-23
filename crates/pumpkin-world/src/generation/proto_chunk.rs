@@ -1468,16 +1468,18 @@ impl ProtoChunk {
                     let mut random =
                         RandomGenerator::Worldgen(WorldgenRandom::from_seed(decorator_seed));
 
-                    biome_datapack::decorating(key, || {
-                        feature.generate(
-                            cache,
-                            block_registry,
-                            generation_min_y,
-                            generation_height,
-                            feature_enum,
-                            &mut random,
-                            origin_pos,
-                        )
+                    crate::generation::feature::decorating_world(random_config.seed, || {
+                        biome_datapack::decorating(key, || {
+                            feature.generate(
+                                cache,
+                                block_registry,
+                                generation_min_y,
+                                generation_height,
+                                feature_enum,
+                                &mut random,
+                                origin_pos,
+                            )
+                        })
                     });
                 }
             }

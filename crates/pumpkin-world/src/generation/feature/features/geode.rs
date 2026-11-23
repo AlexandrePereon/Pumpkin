@@ -1,9 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
 use pumpkin_data::{Block, BlockDirection, BlockId, BlockState, BlockStateId};
+use pumpkin_data::tag::{RegistryKey, get_tag_ids};
 use pumpkin_util::{
     math::{int_provider::IntProvider, position::BlockPos},
-    random::RandomGenerator,
+    random::{RandomGenerator, legacy_rand::LegacyRand},
 };
 
 use crate::generation::feature::features::spring_feature::BlockWrapper;
@@ -79,6 +80,30 @@ impl GeodeFeature {
         }
     }
 
+    /// The blocks a configured list names: block ids, or a tag's blocks for `#tag`.
+    fn block_ids(wrapper: &BlockWrapper) -> HashSet<BlockId> {
+        let names: &[String] = match wrapper {
+            BlockWrapper::Single(s) => std::slice::from_ref(s),
+            BlockWrapper::Multi(v) => v,
+        };
+        let mut ids = HashSet::new();
+        for name in names {
+            if let Some(tag) = name.strip_prefix('#') {
+                let tag = if tag.contains(':') {
+                    tag.to_string()
+                } else {
+                    format!("minecraft:{tag}")
+                };
+                if let Some(tagged) = get_tag_ids(RegistryKey::Block, &tag) {
+                    ids.extend(tagged.iter().filter_map(|&id| BlockId::registered(id)));
+                }
+            } else if let Some(block) = Block::from_name(name) {
+                ids.insert(block.id);
+            }
+        }
+        ids
+    }
+
     fn has_property(codec: &BlockStateCodec, property: pumpkin_data::PropertyKey) -> bool {
         let state = codec.get_state();
         // Obtain the block corresponding to this state id
@@ -100,40 +125,19 @@ impl GeodeFeature {
     ) -> bool {
         let origin = pos;
         let num_points = self.distribution_points.get(random);
-        let noise = NormalNoise::create(random, -4, &[1.0]);
+        // Vanilla seeds the noise from the world, not from the feature's random:
+        // `NOISE.create(new WorldgenRandom(new LegacyRandomSource(level.getSeed())))`.
+        let noise = NormalNoise::create(
+            &mut RandomGenerator::Legacy(LegacyRand::from_seed(
+                crate::generation::feature::decorated_world_seed(),
+            )),
+            -4,
+            &[1.0],
+        );
 
-        // Precompute sets of raw block ids for fast lookups
-        let mut invalid_raw_ids: HashSet<BlockId> = HashSet::new();
-        match &self.invalid_blocks {
-            BlockWrapper::Single(s) => {
-                if let Some(b) = Block::from_name(s.as_str()) {
-                    invalid_raw_ids.insert(b.id);
-                }
-            }
-            BlockWrapper::Multi(v) => {
-                for s in v {
-                    if let Some(b) = Block::from_name(s.as_str()) {
-                        invalid_raw_ids.insert(b.id);
-                    }
-                }
-            }
-        }
-
-        let mut cannot_replace_raw_ids: HashSet<BlockId> = HashSet::new();
-        match &self.cannot_replace {
-            BlockWrapper::Single(s) => {
-                if let Some(b) = Block::from_name(s.as_str()) {
-                    cannot_replace_raw_ids.insert(b.id);
-                }
-            }
-            BlockWrapper::Multi(v) => {
-                for s in v {
-                    if let Some(b) = Block::from_name(s.as_str()) {
-                        cannot_replace_raw_ids.insert(b.id);
-                    }
-                }
-            }
-        }
+        // `invalid_blocks` and `cannot_replace` are block lists or tags (`#minecraft:...`).
+        let invalid_raw_ids = Self::block_ids(&self.invalid_blocks);
+        let cannot_replace_raw_ids = Self::block_ids(&self.cannot_replace);
 
         let mut points: Vec<(BlockPos, i32)> = Vec::with_capacity(num_points as usize);
         let mut crack_points: Vec<BlockPos> = Vec::new();
@@ -359,5 +363,27 @@ impl GeodeFeature {
         }
 
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn block_lists_resolve_tags_and_ids() {
+        let tagged = GeodeFeature::block_ids(&BlockWrapper::Single(
+            "#minecraft:geode_invalid_blocks".to_string(),
+        ));
+        assert!(tagged.contains(&Block::BEDROCK.id));
+        assert!(tagged.contains(&Block::WATER.id));
+        assert!(!tagged.contains(&Block::STONE.id));
+
+        let listed = GeodeFeature::block_ids(&BlockWrapper::Multi(vec![
+            "minecraft:stone".to_string(),
+            "dirt".to_string(),
+        ]));
+        assert_eq!(listed.len(), 2);
+        assert!(listed.contains(&Block::DIRT.id));
     }
 }

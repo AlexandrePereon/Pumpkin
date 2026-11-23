@@ -585,9 +585,20 @@ pub fn value_to_configured_feature(v: &Value) -> TokenStream {
             let placements_require_layer0_alternate = config["placements_require_layer0_alternate"]
                 .as_bool()
                 .unwrap_or(true);
-            let outer_wall_distance = value_to_int_provider(&config["outer_wall_distance"]);
-            let distribution_points = value_to_int_provider(&config["distribution_points"]);
-            let point_offset = value_to_int_provider(&config["point_offset"]);
+            // `GeodeFeature.CODEC`'s defaults for the int providers a file leaves out
+            // (26.3's `amethyst_geode` gives only `outer_wall_distance`).
+            let uniform_or = |v: &Value, min: i64, max: i64| {
+                if v.is_null() {
+                    value_to_int_provider(&serde_json::json!({
+                        "type": "minecraft:uniform", "min_inclusive": min, "max_inclusive": max
+                    }))
+                } else {
+                    value_to_int_provider(v)
+                }
+            };
+            let outer_wall_distance = uniform_or(&config["outer_wall_distance"], 4, 5);
+            let distribution_points = uniform_or(&config["distribution_points"], 3, 4);
+            let point_offset = uniform_or(&config["point_offset"], 1, 2);
             let min_gen_offset = config["min_gen_offset"].as_i64().unwrap_or(-16) as i32;
             let max_gen_offset = config["max_gen_offset"].as_i64().unwrap_or(16) as i32;
             let noise_multiplier = config["noise_multiplier"].as_f64().unwrap_or(0.05);
