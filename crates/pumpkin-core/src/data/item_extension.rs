@@ -8,11 +8,14 @@
 //! Components are read through `data_component_impl::read_data`, the same
 //! readers that load item stacks from saves: the dump's JSON is converted to the
 //! NBT shape they expect. A component Pumpkin has no reader for is skipped and
-//! reported, as the generated vanilla items skip it too.
+//! reported, as the generated vanilla items skip it too. A default of a
+//! component type of a mod's own has no reader: its value is kept as NBT, as the
+//! component's codec writes it, for [`mod_component_default`].
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
+use std::sync::OnceLock;
 
 use pumpkin_data::data_component::DataComponent;
 use pumpkin_data::data_component_extension;
@@ -127,13 +130,35 @@ fn from_dump(dir: &Path) -> Result<Vec<&'static Item>, String> {
         .collect();
     entries.sort_by_key(|(_, item)| item.id);
 
-    Ok(entries
+    let mut defaults = BTreeMap::new();
+    let items = entries
         .into_iter()
-        .map(|(name, item)| leak_item(name, item))
-        .collect())
+        .map(|(name, item)| leak_item(name, item, &mut defaults))
+        .collect();
+    if MOD_COMPONENT_DEFAULTS.set(defaults).is_err() {
+        warn!("Mod component defaults were already installed");
+    }
+    Ok(items)
 }
 
-fn leak_item(name: String, item: DumpItem) -> &'static Item {
+/// Defaults of mod component types on mod items, by (item id, component type id).
+static MOD_COMPONENT_DEFAULTS: OnceLock<BTreeMap<(u16, u16), NbtTag>> = OnceLock::new();
+
+/// The default of a mod's own component type on a mod item, as NBT.
+///
+/// That is `Item.Properties.component(type, value)`, in the shape the
+/// component's codec writes; `None` when the item has none. Pumpkin cannot read
+/// the value: code that knows the mod's codec can.
+#[must_use]
+pub fn mod_component_default(item: u16, component: u16) -> Option<&'static NbtTag> {
+    MOD_COMPONENT_DEFAULTS.get()?.get(&(item, component))
+}
+
+fn leak_item(
+    name: String,
+    item: DumpItem,
+    defaults: &mut BTreeMap<(u16, u16), NbtTag>,
+) -> &'static Item {
     let DumpItem {
         id: raw_id,
         components: dumped,
@@ -143,7 +168,12 @@ fn leak_item(name: String, item: DumpItem) -> &'static Item {
     let mut components: Vec<(DataComponent, &'static dyn DataComponentImpl)> = Vec::new();
     for (component_name, value) in dumped {
         let Some(id) = DataComponent::try_from_name(&component_name) else {
-            // Also what codegen does for vanilla: Pumpkin has no such component.
+            // A mod's own type: kept for code that knows its codec.
+            if let Some(mod_id) = data_component_extension::id_of(&component_name) {
+                defaults.insert((raw_id, mod_id), json_to_nbt(&value));
+            }
+            // Otherwise also what codegen does for vanilla: Pumpkin has no such
+            // component.
             continue;
         };
         if let Some(component) = read_data(id, &json_to_nbt(&value)) {
