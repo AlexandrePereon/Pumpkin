@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use pumpkin_data::{
-    Block, BlockId, BlockState, Mirror, Rotation, block_properties::blocks_movement,
-    structures::StructureKeys,
-};
+use pumpkin_data::{Block, BlockId, BlockState, Mirror, Rotation, structures::StructureKeys};
 use pumpkin_util::{
     HeightMap,
     math::{block_box::BlockBox, position::BlockPos, vector3::Vector3},
@@ -206,7 +203,7 @@ fn get_random_within_interval(random: &mut RandomGenerator, min_preferred: i32, 
 
 fn is_opaque(state: &BlockState, placement: VerticalPlacement) -> bool {
     if placement == VerticalPlacement::OnOceanFloor {
-        blocks_movement(state, BlockId::from_state_id(state.id))
+        crate::chunk::heightmap::raises_ocean_floor(BlockId::from_state_id(state.id))
     } else {
         !state.is_air()
     }

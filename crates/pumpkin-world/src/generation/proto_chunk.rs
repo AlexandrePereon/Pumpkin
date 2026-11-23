@@ -8,8 +8,8 @@ use pumpkin_data::structures::{
     Structure, StructureKeys, StructurePlacementType, StructureSet, WeightedEntry,
 };
 use pumpkin_data::tag::RegistryKey;
-use pumpkin_data::{Block, BlockState, block_properties::blocks_movement, chunk::Biome};
-use pumpkin_data::{BlockId, BlockStateId, tag};
+use pumpkin_data::{Block, BlockState, chunk::Biome};
+use pumpkin_data::{BlockId, BlockStateId};
 use pumpkin_util::random::xoroshiro128::XoroshiroSplitter;
 use pumpkin_util::random::{RandomImpl, get_large_feature_seed, legacy_rand::LegacyRand};
 use pumpkin_util::{
@@ -37,6 +37,7 @@ use super::{
 };
 use crate::biome::BiomeSupplier;
 use crate::chunk::format::LightContainer;
+use crate::chunk::heightmap;
 use crate::chunk::palette::BlockPalette;
 use crate::chunk::{ChunkData, ChunkHeightmapType, ChunkLight};
 use crate::chunk_system::{StagedChunkEnum, generation_cache::SurfaceBiomeNeighborhood};
@@ -419,8 +420,7 @@ impl ProtoChunk {
                     if state_id == BlockStateId::AIR {
                         return false;
                     }
-                    let state = state_id.to_state();
-                    !state.is_air() && blocks_movement(state, BlockId::from_state_id(state_id))
+                    heightmap::raises_ocean_floor(BlockId::from_state_id(state_id))
                 });
                 if let Some(local_y) = ocean_floor {
                     proto_chunk.flat_ocean_floor_height_map[index] = (bottom_y + local_y) as i16;
@@ -514,18 +514,16 @@ impl ProtoChunk {
             return;
         }
         let is_not_air = !block_state.is_air();
-        let (is_ocean_floor, is_liquid, is_leaves) = if is_not_air {
+        let (is_ocean_floor, motion_blocking, motion_blocking_no_leaves) = if is_not_air {
             let block = BlockId::from_state_id(block_state.id);
             (
-                blocks_movement(block_state, block),
-                block_state.is_liquid(),
-                block.has_tag(tag::Block::MINECRAFT_LEAVES),
+                heightmap::raises_ocean_floor(block),
+                heightmap::raises_motion_blocking(block_state, block),
+                heightmap::raises_motion_blocking_no_leaves(block_state, block),
             )
         } else {
             (false, false, false)
         };
-        let motion_blocking = is_ocean_floor || is_liquid;
-        let motion_blocking_no_leaves = motion_blocking && !is_leaves;
 
         if is_not_air && y > self.flat_surface_height_map[hm_index] {
             self.flat_surface_height_map[hm_index] = y;
@@ -581,17 +579,15 @@ impl ProtoChunk {
                     lower_surface = false;
                 }
                 let block = BlockId::from_state_id(state_id);
-                let bm = blocks_movement(state, block);
-                if lower_ocean && bm {
+                if lower_ocean && heightmap::raises_ocean_floor(block) {
                     self.flat_ocean_floor_height_map[hm_index] = scan_y;
                     lower_ocean = false;
                 }
-                let mb = bm || state.is_liquid();
-                if lower_mb && mb {
+                if lower_mb && heightmap::raises_motion_blocking(state, block) {
                     self.flat_motion_blocking_height_map[hm_index] = scan_y;
                     lower_mb = false;
                 }
-                if lower_mb_no_leaves && mb && !block.has_tag(tag::Block::MINECRAFT_LEAVES) {
+                if lower_mb_no_leaves && heightmap::raises_motion_blocking_no_leaves(state, block) {
                     self.flat_motion_blocking_no_leaves_height_map[hm_index] = scan_y;
                     lower_mb_no_leaves = false;
                 }
@@ -656,19 +652,17 @@ impl ProtoChunk {
                             surface_found = true;
                         }
                         let block = BlockId::from_state_id(state_id);
-                        let blocks_movement = blocks_movement(state, block);
-                        if blocks_movement && !ocean_floor_found {
+                        if !ocean_floor_found && heightmap::raises_ocean_floor(block) {
                             self.flat_ocean_floor_height_map[index] = y as i16;
                             ocean_floor_found = true;
                         }
-                        let is_liquid = state.is_liquid();
-                        if (blocks_movement || is_liquid) && !motion_blocking_found {
+                        if !motion_blocking_found && heightmap::raises_motion_blocking(state, block)
+                        {
                             self.flat_motion_blocking_height_map[index] = y as i16;
                             motion_blocking_found = true;
                         }
-                        if (blocks_movement || is_liquid)
-                            && !block.has_tag(tag::Block::MINECRAFT_LEAVES)
-                            && !motion_blocking_no_leaves_found
+                        if !motion_blocking_no_leaves_found
+                            && heightmap::raises_motion_blocking_no_leaves(state, block)
                         {
                             self.flat_motion_blocking_no_leaves_height_map[index] = y as i16;
                             motion_blocking_no_leaves_found = true;

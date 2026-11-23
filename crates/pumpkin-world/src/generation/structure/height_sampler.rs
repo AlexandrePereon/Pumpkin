@@ -1,4 +1,4 @@
-use pumpkin_data::{Block, BlockId, BlockState, block_properties::blocks_movement};
+use pumpkin_data::{Block, BlockId, BlockState};
 use pumpkin_util::math::vector3::Vector3;
 use rustc_hash::FxHashMap;
 
@@ -111,7 +111,7 @@ impl<'a> NoiseHeightSampler<'a> {
         for (idx, &state) in blocks.iter().enumerate().rev() {
             let block_y = min_y + idx as i32;
             if if ocean_floor {
-                blocks_movement(state, BlockId::from_state_id(state.id))
+                crate::chunk::heightmap::raises_ocean_floor(BlockId::from_state_id(state.id))
             } else {
                 !state.is_air()
             } {

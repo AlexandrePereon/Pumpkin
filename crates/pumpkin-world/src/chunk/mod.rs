@@ -1,10 +1,9 @@
 use crate::chunk::format::LightContainer;
 use crate::tick::scheduler::ChunkTickScheduler;
 use palette::{BiomePalette, BlockPalette, has_random_ticking_fluid};
-use pumpkin_data::block_properties::{blocks_movement, has_random_ticks, is_air};
+use pumpkin_data::block_properties::{has_random_ticks, is_air};
 use pumpkin_data::chunk::ChunkStatus;
 use pumpkin_data::fluid::Fluid;
-use pumpkin_data::tag::Block::MINECRAFT_LEAVES;
 use pumpkin_data::{Block, BlockState, BlockStateId};
 use pumpkin_nbt::compound::NbtCompound;
 use pumpkin_util::math::position::BlockPos;
@@ -16,6 +15,7 @@ use std::sync::atomic::AtomicU64;
 use thiserror::Error;
 
 pub mod format;
+pub mod heightmap;
 pub mod io;
 pub mod palette;
 
@@ -185,10 +185,9 @@ impl ChunkHeightmapType {
         let block = block_state.id.to_block_id();
         match self {
             Self::WorldSurface => !block_state.is_air(),
-            Self::MotionBlocking => blocks_movement(block_state, block) || block_state.is_liquid(),
+            Self::MotionBlocking => heightmap::raises_motion_blocking(block_state, block),
             Self::MotionBlockingNoLeaves => {
-                (blocks_movement(block_state, block) || block_state.is_liquid())
-                    && !block.has_tag(MINECRAFT_LEAVES)
+                heightmap::raises_motion_blocking_no_leaves(block_state, block)
             }
         }
     }
