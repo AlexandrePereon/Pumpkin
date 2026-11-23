@@ -17,6 +17,9 @@ thread_local! {
     /// The seed of the world whose chunk is being decorated, for the features that read
     /// vanilla's `WorldGenLevel.getSeed()` (the geode's noise).
     static DECORATED_WORLD_SEED: Cell<u64> = const { Cell::new(0) };
+    /// The id of the dimension whose chunk is being decorated (`minecraft:overworld`…), for
+    /// the features of registered types that read vanilla's `ServerLevel.dimension()`.
+    static DECORATED_DIMENSION: Cell<&'static str> = const { Cell::new("") };
 }
 
 /// Runs `f`, the decoration of a chunk of the world with this seed.
@@ -31,4 +34,19 @@ pub fn decorating_world<R>(seed: u64, f: impl FnOnce() -> R) -> R {
 #[must_use]
 pub fn decorated_world_seed() -> u64 {
     DECORATED_WORLD_SEED.get()
+}
+
+/// Runs `f`, the decoration of a chunk of the dimension with this id.
+pub fn decorating_dimension<R>(dimension: &'static str, f: impl FnOnce() -> R) -> R {
+    let previous = DECORATED_DIMENSION.replace(dimension);
+    let result = f();
+    DECORATED_DIMENSION.set(previous);
+    result
+}
+
+/// The id of the dimension being decorated (see [`decorating_dimension`]); empty outside a
+/// decoration.
+#[must_use]
+pub fn decorated_dimension() -> &'static str {
+    DECORATED_DIMENSION.get()
 }

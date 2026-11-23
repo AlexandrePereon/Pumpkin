@@ -28,6 +28,10 @@ pub struct FeatureContext<'a> {
     pub random: &'a mut RandomGenerator,
     /// The position the placed feature's modifiers gave.
     pub pos: BlockPos,
+    /// The world's seed (vanilla's `WorldGenLevel.getSeed()`).
+    pub seed: u64,
+    /// The id of the dimension being decorated (`minecraft:overworld`…).
+    pub dimension: &'static str,
 }
 
 /// A configured feature of a registered type (vanilla's `Feature.place`).
@@ -44,6 +48,10 @@ pub struct PlacementContext<'a> {
     pub height: u16,
     pub random: &'a mut RandomGenerator,
     pub pos: BlockPos,
+    /// The world's seed (vanilla's `WorldGenLevel.getSeed()`).
+    pub seed: u64,
+    /// The id of the dimension being decorated (`minecraft:overworld`…).
+    pub dimension: &'static str,
 }
 
 /// A placement modifier of a registered type (vanilla's `PlacementModifier.getPositions`).

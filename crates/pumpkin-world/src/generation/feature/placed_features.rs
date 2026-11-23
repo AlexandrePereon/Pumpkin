@@ -242,6 +242,8 @@ impl PlacementModifier {
                         height,
                         random,
                         pos,
+                        seed: super::decorated_world_seed(),
+                        dimension: super::decorated_dimension(),
                     })
                     .into_iter(),
             ),

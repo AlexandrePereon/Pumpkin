@@ -724,10 +724,15 @@ impl Cache {
             },
             StagedChunkEnum::Features => match generator {
                 generator::WorldGenerator::Noise(noise_gen) => {
-                    ProtoChunk::generate_features_and_structure(
-                        self,
-                        block_registry,
-                        &noise_gen.random_config,
+                    crate::generation::feature::decorating_dimension(
+                        noise_gen.dimension.minecraft_name,
+                        || {
+                            ProtoChunk::generate_features_and_structure(
+                                self,
+                                block_registry,
+                                &noise_gen.random_config,
+                            );
+                        },
                     );
                 }
                 generator::WorldGenerator::Flat(_) => {
