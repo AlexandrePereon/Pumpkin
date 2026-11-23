@@ -209,6 +209,14 @@ impl BlockAccessor for Cache {
         let id = GenerationCache::get_block_state(self, &position.0);
         BlockState::from_id_with_block(id)
     }
+
+    fn unlit_generation_brightness(&self) -> Option<u8> {
+        let mid = ((self.size * self.size) >> 1) as usize;
+        match self.chunks.get(mid)? {
+            Chunk::Proto(chunk) => Some(chunk.unlit_brightness()),
+            Chunk::Level(_) => None,
+        }
+    }
 }
 
 impl GenerationCache for Cache {

@@ -157,6 +157,7 @@ pub struct ProtoChunk {
     generation_height: u16,
     generation_bottom_y: i8,
     sea_level: i32,
+    has_skylight: bool,
     pub stage: StagedChunkEnum,
     pub light: ChunkLight,
     pub blending_data: Option<crate::generation::blender::blending_data::BlendingData>,
@@ -209,6 +210,13 @@ impl ProtoChunk {
     pub(crate) fn has_structure(&self, key: StructureKeys) -> bool {
         self.structure_starts.contains_key(&key)
             || self.structure_references.iter().any(|(k, _)| *k == key)
+    }
+
+    /// What generation reads as raw brightness here (see
+    /// [`BlockAccessor::unlit_generation_brightness`]): 15 under a sky, 0 without one.
+    #[must_use]
+    pub const fn unlit_brightness(&self) -> u8 {
+        if self.has_skylight { 15 } else { 0 }
     }
 
     #[must_use]
@@ -271,6 +279,7 @@ impl ProtoChunk {
             generation_height,
             generation_bottom_y,
             sea_level,
+            has_skylight: dimension.has_skylight,
             stage: StagedChunkEnum::Empty,
             light: ChunkLight {
                 sky_light: (0..section_count)
@@ -1979,6 +1988,10 @@ impl BlockAccessor for ProtoChunk {
     fn get_block_and_state(&self, position: &BlockPos) -> (&'static Block, &'static BlockState) {
         let id = self.get_block_state(&position.0);
         BlockState::from_id_with_block(id)
+    }
+
+    fn unlit_generation_brightness(&self) -> Option<u8> {
+        Some(self.unlit_brightness())
     }
 }
 

@@ -47,7 +47,17 @@ impl MushroomPlantBlock {
             return true;
         }
 
-        let is_dark_enough = world.is_none_or(|world| world.get_raw_brightness(pos, 0) < 13);
+        // Without a world this is chunk generation, which runs before light: the brightness
+        // vanilla reads there is the accessor's (sky light 15 under a sky, so a mushroom off its
+        // own soils does not survive in the overworld's generation, but does in the nether's).
+        let is_dark_enough = world.map_or_else(
+            || {
+                block_accessor
+                    .unlit_generation_brightness()
+                    .is_none_or(|brightness| brightness < 13)
+            },
+            |world| world.get_raw_brightness(pos, 0) < 13,
+        );
 
         is_dark_enough && Self::may_place_on(block_accessor.get_block_state(&below_pos))
     }

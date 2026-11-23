@@ -94,6 +94,14 @@ pub trait BlockAccessor: Send + Sync {
 
     fn get_block_and_state(&self, position: &BlockPos) -> (&'static Block, &'static BlockState);
 
+    /// The raw brightness chunk generation reads, as it runs before light: vanilla's light
+    /// engine reads a column it has not lit as sky light 15 where the dimension has a sky
+    /// (`SkyLightSectionStorage.getLightValue`) and as darkness where it has none. `None` for a
+    /// world with real light.
+    fn unlit_generation_brightness(&self) -> Option<u8> {
+        None
+    }
+
     /// Clips a ray segment against the block and fluid shapes in this accessor.
     fn clip(&self, context: &crate::clip::ClipContext) -> crate::clip::BlockHitResult {
         crate::clip::clip(self, context)

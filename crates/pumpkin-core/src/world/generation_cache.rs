@@ -108,6 +108,10 @@ impl BlockAccessor for WorldGenerationCache {
     fn get_block_and_state(&self, position: &BlockPos) -> (&'static Block, &'static BlockState) {
         BlockState::from_id_with_block(self.read(position))
     }
+
+    fn unlit_generation_brightness(&self) -> Option<u8> {
+        Some(self.center.unlit_brightness())
+    }
 }
 
 impl GenerationCache for WorldGenerationCache {

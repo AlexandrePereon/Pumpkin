@@ -172,10 +172,14 @@ impl crate::world::WorldPortalExt for TestBlockRegistry {
             return block_below.has_tag(&pumpkin_data::tag::Block::MINECRAFT_SUPPORTS_NETHER_WART);
         }
         if block == &Block::BROWN_MUSHROOM || block == &Block::RED_MUSHROOM {
+            // `MushroomBlock.canSurvive`, with generation's brightness (no light yet).
             let below_state = block_accessor.get_block_state(&block_pos.down());
+            let dark = block_accessor
+                .unlit_generation_brightness()
+                .is_none_or(|brightness| brightness < 13);
             return block_below.has_tag(
                 &pumpkin_data::tag::Block::MINECRAFT_OVERRIDES_MUSHROOM_LIGHT_REQUIREMENT,
-            ) || below_state.is_solid_render();
+            ) || (dark && below_state.is_solid_render());
         }
         if block == &Block::SMALL_DRIPLEAF {
             if block_below.has_tag(&pumpkin_data::tag::Block::MINECRAFT_SUPPORTS_SMALL_DRIPLEAF) {
@@ -360,6 +364,9 @@ impl crate::world::BlockAccessor for TestGridCache {
     ) {
         let id = self.get_block_state_id(position);
         pumpkin_data::BlockState::from_id_with_block(id)
+    }
+    fn unlit_generation_brightness(&self) -> Option<u8> {
+        Some(self.chunks.get(&self.center_pos)?.unlit_brightness())
     }
 }
 
