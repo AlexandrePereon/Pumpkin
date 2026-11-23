@@ -245,6 +245,10 @@ mod tests {
         // Through the generated constant, by name, bare and namespaced.
         assert!(pedestal.has_tag(&tag::Block::MINECRAFT_MINEABLE_PICKAXE));
         assert!(!pedestal.has_tag(&tag::Block::MINECRAFT_MINEABLE_AXE));
+        // And through `BlockId`, as worldgen checks tags.
+        let id = crate::BlockId::extended(PEDESTAL).unwrap();
+        assert!(id.has_tag(tag::Block::MINECRAFT_MINEABLE_PICKAXE));
+        assert!(!id.has_tag(tag::Block::MINECRAFT_MINEABLE_AXE));
         assert_eq!(pedestal.is_tagged_with("#mineable/pickaxe"), Some(true));
         assert_eq!(
             pedestal.is_tagged_with("pumpkinverse_test:pedestals"),

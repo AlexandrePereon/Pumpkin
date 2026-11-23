@@ -513,7 +513,9 @@ impl BlockId {
     #[inline]
     #[must_use]
     pub fn has_tag(self, tag: Tag) -> bool {
-        tag.1.contains(&self.0)
+        // A datapack may have added this block to the tag (`Taggable::has_tag`
+        // does the same check).
+        tag.1.contains(&self.0) || crate::tag_extension::gained(RegistryKey::Block, tag.1, self.0)
     }
 }
 
