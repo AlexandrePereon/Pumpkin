@@ -610,17 +610,20 @@ pub fn build() -> TokenStream {
 
             pub const ALL: &'static [&'static Self] = &[#all_variants];
 
+            /// A biome by name, `minecraft:` left out for vanilla's; a datapack's own
+            /// biome (see [`crate::biome_extension`]) by its full id.
             pub fn from_name(name: &str) -> Option<&'static Self> {
                 match name {
                     #name_to_type
-                    _ => None
+                    _ => crate::biome_extension::by_name(name)
                 }
             }
 
+            /// A biome by registry id; past vanilla's, a datapack's own.
             pub const fn from_id(id: u8) -> Option<&'static Self> {
                 match id {
                     #id_to_type
-                    _ => None
+                    _ => crate::biome_extension::by_id(id)
                 }
             }
         }

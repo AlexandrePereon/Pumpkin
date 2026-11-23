@@ -9505,6 +9505,8 @@ impl Biome {
         &Self::WINDSWEPT_SAVANNA,
         &Self::WOODED_BADLANDS,
     ];
+    #[doc = r" A biome by name, `minecraft:` left out for vanilla's; a datapack's own"]
+    #[doc = r" biome (see [`crate::biome_extension`]) by its full id."]
     pub fn from_name(name: &str) -> Option<&'static Self> {
         match name {
             "badlands" => Some(&Self::BADLANDS),
@@ -9574,9 +9576,10 @@ impl Biome {
             "windswept_hills" => Some(&Self::WINDSWEPT_HILLS),
             "windswept_savanna" => Some(&Self::WINDSWEPT_SAVANNA),
             "wooded_badlands" => Some(&Self::WOODED_BADLANDS),
-            _ => None,
+            _ => crate::biome_extension::by_name(name),
         }
     }
+    #[doc = r" A biome by registry id; past vanilla's, a datapack's own."]
     pub const fn from_id(id: u8) -> Option<&'static Self> {
         match id {
             0 => Some(&Self::BADLANDS),
@@ -9646,7 +9649,7 @@ impl Biome {
             64 => Some(&Self::WINDSWEPT_HILLS),
             65 => Some(&Self::WINDSWEPT_SAVANNA),
             66 => Some(&Self::WOODED_BADLANDS),
-            _ => None,
+            _ => crate::biome_extension::by_id(id),
         }
     }
 }
