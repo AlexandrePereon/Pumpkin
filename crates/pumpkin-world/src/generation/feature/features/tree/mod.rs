@@ -15,6 +15,7 @@ use crate::generation::{block_state_provider::BlockStateProvider, feature::size:
 use crate::world::WorldPortalExt;
 
 pub mod decorator;
+pub mod extension;
 pub mod foliage;
 pub mod root;
 pub mod trunk;
@@ -35,6 +36,33 @@ pub struct TreeNode {
     center: BlockPos,
     foliage_radius: i32,
     giant_trunk: bool,
+}
+
+impl TreeNode {
+    /// A foliage attachment point (vanilla `FoliagePlacer.FoliageAttachment`).
+    #[must_use]
+    pub const fn new(center: BlockPos, foliage_radius: i32, giant_trunk: bool) -> Self {
+        Self {
+            center,
+            foliage_radius,
+            giant_trunk,
+        }
+    }
+
+    #[must_use]
+    pub const fn center(&self) -> BlockPos {
+        self.center
+    }
+
+    #[must_use]
+    pub const fn foliage_radius(&self) -> i32 {
+        self.foliage_radius
+    }
+
+    #[must_use]
+    pub const fn giant_trunk(&self) -> bool {
+        self.giant_trunk
+    }
 }
 
 impl TreeFeature {
@@ -445,18 +473,50 @@ impl TreeFeature {
 
         let trunk_state = self.trunk_provider.get(random, pos, chunk, block_registry);
 
-        let (nodes, logs) = self.trunk_placer.generate(
-            block_registry,
-            clipped_tree_height as u32,
-            trunk_start,
-            chunk,
-            random,
-            &self.below_trunk_provider,
-            trunk_state,
-        );
+        let (nodes, logs) = if let trunk::TrunkType::Extension(placer) = &self.trunk_placer.r#type
+        {
+            placer.place_trunk(
+                &self.trunk_placer,
+                extension::TrunkContext {
+                    chunk: &mut *chunk,
+                    block_registry,
+                    random,
+                    tree: self,
+                    height: clipped_tree_height as u32,
+                    start_pos: trunk_start,
+                    trunk_state,
+                },
+            )
+        } else {
+            self.trunk_placer.generate(
+                block_registry,
+                clipped_tree_height as u32,
+                trunk_start,
+                chunk,
+                random,
+                &self.below_trunk_provider,
+                trunk_state,
+            )
+        };
 
         let mut foliage_positions = Vec::new();
         for node in nodes {
+            if let foliage::FoliageType::Extension(placer) = &self.foliage_placer.r#type {
+                let offset = self.foliage_placer.offset.get(random);
+                placer.create_foliage(extension::FoliageContext {
+                    chunk: &mut *chunk,
+                    block_registry,
+                    random,
+                    tree: self,
+                    trunk_height: clipped_tree_height,
+                    node: &node,
+                    foliage_height,
+                    radius: foliage_radius,
+                    offset,
+                    foliage: &mut foliage_positions,
+                });
+                continue;
+            }
             self.foliage_placer.generate(
                 &mut foliage_positions,
                 chunk,
@@ -487,6 +547,7 @@ impl TreeFeature {
                         trunk::TrunkType::UpwardsBranching(upwards) => {
                             upwards.can_grow_through.contains(&block.as_u16())
                         }
+                        trunk::TrunkType::Extension(placer) => placer.can_grow_through(block),
                         _ => false,
                     };
                     if (Self::can_replace_or_log(rstate.to_state(), block) || can_grow_through)

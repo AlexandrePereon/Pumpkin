@@ -36,6 +36,8 @@ pub enum TreeDecorator {
     AttachedToLeaves(AttachedToLeavesTreeDecorator),
     PlaceOnGround(PlaceOnGroundTreeDecorator),
     AttachedToLogs(AttachedToLogsTreeDecorator),
+    /// A type Pumpkin does not know, registered by a port (`tree::extension`).
+    Extension(Box<dyn super::extension::ExtensionTreeDecorator>),
 }
 
 impl TreeDecorator {
@@ -100,6 +102,17 @@ impl TreeDecorator {
             }
             Self::AttachedToLogs(decorator) => {
                 decorator.generate(chunk, block_registry, random, log_positions, decorations);
+            }
+            Self::Extension(decorator) => {
+                decorator.place(super::extension::DecoratorContext {
+                    chunk,
+                    block_registry,
+                    random,
+                    roots: root_positions,
+                    logs: log_positions,
+                    leaves: foliage_positions,
+                    decorations,
+                });
             }
         }
     }

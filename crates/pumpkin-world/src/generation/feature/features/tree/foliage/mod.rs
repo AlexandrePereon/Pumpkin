@@ -142,6 +142,7 @@ impl FoliagePlacer {
     pub fn get_random_radius(&self, random: &mut RandomGenerator, base_height: i32) -> i32 {
         match &self.r#type {
             FoliageType::Pine(_) => PineFoliagePlacer::get_random_radius(self, random, base_height),
+            FoliageType::Extension(placer) => placer.foliage_radius(self, random, base_height),
             _ => self.radius.get(random),
         }
     }
@@ -288,6 +289,9 @@ pub enum FoliageType {
     RandomSpread(RandomSpreadFoliagePlacer),
     Cherry(CherryFoliagePlacer),
     Poplar(PoplarFoliagePlacer),
+    /// A type Pumpkin does not know, registered by a port (`tree::extension`); placed by
+    /// `TreeFeature`, which hands it the whole tree.
+    Extension(Box<dyn super::extension::ExtensionFoliagePlacer>),
 }
 
 impl FoliageType {
@@ -417,6 +421,7 @@ impl FoliageType {
                 offset,
                 foliage_provider,
             ),
+            Self::Extension(_) => Vec::new(),
         }
     }
 
@@ -434,6 +439,7 @@ impl FoliageType {
             Self::RandomSpread(random_spread) => random_spread.get_random_height(random),
             Self::Cherry(cherry) => cherry.get_random_height(random),
             Self::Poplar(poplar) => poplar.get_random_height(random),
+            Self::Extension(placer) => placer.foliage_height(random, trunk_height),
         }
     }
 }

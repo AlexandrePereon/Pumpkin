@@ -117,6 +117,9 @@ pub enum TrunkType {
     UpwardsBranching(UpwardsBranchingTrunkPlacer),
     Cherry(CherryTrunkPlacer),
     Poplar(PoplarTrunkPlacer),
+    /// A type Pumpkin does not know, registered by a port (`tree::extension`); placed by
+    /// `TreeFeature`, which hands it the whole tree.
+    Extension(Box<dyn super::extension::ExtensionTrunkPlacer>),
 }
 
 impl TrunkType {
@@ -234,6 +237,7 @@ impl TrunkType {
                 below_trunk_provider,
                 trunk_state,
             ),
+            Self::Extension(_) => (Vec::new(), Vec::new()),
         }
     }
 }

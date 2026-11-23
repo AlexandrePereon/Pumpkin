@@ -12,7 +12,7 @@ use super::{
     str_of,
 };
 use crate::generation::feature::features::fallen_tree::FallenTreeFeature;
-use crate::generation::feature::features::tree::TreeFeature;
+use crate::generation::feature::features::tree::{TreeFeature, extension};
 use crate::generation::feature::features::tree::decorator::{
     TreeDecorator, alter_ground::AlterGroundTreeDecorator,
     attached_to_leaves::AttachedToLeavesTreeDecorator,
@@ -141,7 +141,7 @@ fn trunk_placer(value: &Value) -> Result<TrunkPlacer> {
             trunk_height_above_branches: int_provider(get(obj, "trunk_height_above_branches"))?,
             branch_amount: int_provider(get(obj, "branch_amount"))?,
         }),
-        other => return Err(format!("unsupported trunk placer {other}")),
+        other => TrunkType::Extension(extension::read_trunk_placer(&full_id(other), obj)?),
     };
     Ok(TrunkPlacer {
         base_height: u8_or(obj, "base_height", None)?,
@@ -185,7 +185,7 @@ fn foliage_placer(value: &Value) -> Result<FoliagePlacer> {
             height: int_provider(get(obj, "height"))?,
             side_hole_chance: f32_or(obj, "side_hole_chance", 0.0)?,
         }),
-        other => return Err(format!("unsupported foliage placer {other}")),
+        other => FoliageType::Extension(extension::read_foliage_placer(&full_id(other), obj)?),
     };
     Ok(FoliagePlacer {
         radius: int_provider(get(obj, "radius"))?,
@@ -356,7 +356,7 @@ impl FeatureParser<'_> {
                 ground_probability: f32_or(obj, "ground_probability", 0.0)?,
             }),
             "shelf_mushroom" => return Ok(None),
-            other => return Err(format!("unsupported tree decorator {other}")),
+            other => TreeDecorator::Extension(extension::read_tree_decorator(&full_id(other), obj)?),
         }))
     }
 }

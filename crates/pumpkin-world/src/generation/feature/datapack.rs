@@ -363,7 +363,8 @@ fn y_offset(value: &Value) -> Result<YOffset> {
     }
 }
 
-fn int_provider(value: &Value) -> Result<IntProvider> {
+/// An int provider from its JSON (a number or a typed object), as vanilla's codec reads it.
+pub fn int_provider(value: &Value) -> Result<IntProvider> {
     let obj = match value {
         Value::Null => return Ok(IntProvider::Constant(0)),
         Value::Number(n) => {
