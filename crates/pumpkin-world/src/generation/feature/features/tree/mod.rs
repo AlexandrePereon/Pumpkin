@@ -3,7 +3,7 @@ use foliage::FoliagePlacer;
 use pumpkin_data::BlockState;
 use pumpkin_data::block_properties::{BlockProperties, OakLeavesLikeProperties};
 use pumpkin_data::tag::Taggable;
-use pumpkin_data::{BlockId, tag};
+use pumpkin_data::{Block, BlockId, Property, tag};
 use pumpkin_util::{math::position::BlockPos, random::RandomGenerator};
 use root::RootPlacer;
 
@@ -19,6 +19,44 @@ pub mod extension;
 pub mod foliage;
 pub mod root;
 pub mod trunk;
+
+/// The `distance` of a leaves state (`LeavesBlock.getOptionalDistanceAt` without the tag
+/// check): a vanilla leaves block's, or, for a block past the generated ones (a mod's
+/// leaves), its `distance` property if it has one.
+fn leaf_distance(block: &Block, state: &BlockState) -> Option<u8> {
+    if OakLeavesLikeProperties::handles_block_id(block.id) {
+        return Some(OakLeavesLikeProperties::from_state_id(state.id).distance);
+    }
+    if block.id.as_u16() < BlockId::COUNT {
+        return None;
+    }
+    let props = block.properties(state.id)?.to_props();
+    props
+        .iter()
+        .find(|p| p.key_str() == "distance")?
+        .value_str()
+        .parse()
+        .ok()
+}
+
+/// `state.setValue(DISTANCE, distance)` for the leaves [`leaf_distance`] reads; `None` for
+/// any other block.
+fn with_leaf_distance(
+    block: &'static Block,
+    state: &BlockState,
+    distance: u8,
+) -> Option<&'static BlockState> {
+    if OakLeavesLikeProperties::handles_block_id(block.id) {
+        let mut props = OakLeavesLikeProperties::from_state_id(state.id);
+        props.distance = distance;
+        return Some(&block.states[props.to_index() as usize]);
+    }
+    leaf_distance(block, state)?;
+    let mut props = block.properties(state.id)?.to_props();
+    let slot = props.iter_mut().find(|p| p.key_str() == "distance")?;
+    *slot = Property::from_str_pair("distance", &distance.to_string())?;
+    Some(block.from_properties(&props).to_state_id(block).to_state())
+}
 
 pub struct TreeFeature {
     pub trunk_provider: BlockStateProvider,
@@ -199,10 +237,9 @@ impl TreeFeature {
                 if let Some(idx) = get_index(pos.0.x, pos.0.y, pos.0.z) {
                     if smallest_distance != 0 {
                         let (block, state) = chunk.get_block_and_state(&pos);
-                        if OakLeavesLikeProperties::handles_block_id(block.id) {
-                            let mut props = OakLeavesLikeProperties::from_state_id(state.id);
-                            props.distance = smallest_distance as u8;
-                            let new_state = &block.states[props.to_index() as usize];
+                        if let Some(new_state) =
+                            with_leaf_distance(block, state, smallest_distance as u8)
+                        {
                             chunk.set_block_state(&pos.0, new_state);
                         }
                     }
@@ -221,13 +258,8 @@ impl TreeFeature {
                                 .has_tag(&tag::Block::MINECRAFT_PREVENTS_NEARBY_LEAF_DECAY)
                             {
                                 Some(0)
-                            } else if OakLeavesLikeProperties::handles_block_id(n_block.id) {
-                                Some(
-                                    OakLeavesLikeProperties::from_state_id(n_state.id).distance
-                                        as usize,
-                                )
                             } else {
-                                None
+                                leaf_distance(n_block, n_state).map(usize::from)
                             };
 
                             if let Some(dist) = distance {
