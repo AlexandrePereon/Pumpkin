@@ -5,6 +5,7 @@ use pumpkin_data::chunk::Biome;
 #[cfg(test)]
 use pumpkin_data::placed_feature::PlacedFeature;
 
+use crate::biome::{DatapackDimension, datapack_biomes};
 use crate::generation::feature::biome_datapack::{FeatureKey, feature_keys};
 
 // The order of biomes in this array is used by FeatureSorter to break ties between otherwise independent features.
@@ -106,28 +107,41 @@ const END_BIOMES: &[&Biome] = &[
     &Biome::END_BARRENS,
 ];
 
+/// The overworld's biomes as the feature sorter visits them: a datapack source's, in the
+/// order its list first names them (vanilla's `possibleBiomes`), else vanilla's.
+fn overworld_biomes() -> Vec<&'static Biome> {
+    datapack_biomes(DatapackDimension::Overworld)
+        .map_or_else(|| OVERWORLD_BIOMES.to_vec(), <[&Biome]>::to_vec)
+}
+
+/// The nether's, likewise.
+fn nether_biomes() -> Vec<&'static Biome> {
+    datapack_biomes(DatapackDimension::Nether)
+        .map_or_else(|| NETHER_BIOMES.to_vec(), <[&Biome]>::to_vec)
+}
+
+// All read once, after the datapacks' biomes and sources are installed.
 static OVERWORLD_FEATURES_PER_STEP: LazyLock<Vec<Vec<FeatureKey>>> =
-    LazyLock::new(|| sort_features_per_step(OVERWORLD_BIOMES));
+    LazyLock::new(|| sort_features_per_step(&overworld_biomes()));
 static OVERWORLD_BIOME_IDS: LazyLock<HashSet<u8>> =
-    LazyLock::new(|| OVERWORLD_BIOMES.iter().map(|biome| biome.id).collect());
+    LazyLock::new(|| overworld_biomes().iter().map(|biome| biome.id).collect());
 
 static NETHER_FEATURES_PER_STEP: LazyLock<Vec<Vec<FeatureKey>>> =
-    LazyLock::new(|| sort_features_per_step(NETHER_BIOMES));
+    LazyLock::new(|| sort_features_per_step(&nether_biomes()));
 static NETHER_BIOME_IDS: LazyLock<HashSet<u8>> =
-    LazyLock::new(|| NETHER_BIOMES.iter().map(|biome| biome.id).collect());
+    LazyLock::new(|| nether_biomes().iter().map(|biome| biome.id).collect());
 
 static END_FEATURES_PER_STEP: LazyLock<Vec<Vec<FeatureKey>>> =
     LazyLock::new(|| sort_features_per_step(END_BIOMES));
 static END_BIOME_IDS: LazyLock<HashSet<u8>> =
     LazyLock::new(|| END_BIOMES.iter().map(|biome| biome.id).collect());
 
-/// Every biome's effective feature lists (a datapack's, else the compiled ones), by id: read
-/// once, after the datapacks' biomes are installed.
+/// Every biome's effective feature lists (a datapack's, else the compiled ones), by id.
 static BIOME_FEATURES: LazyLock<HashMap<u8, Vec<Vec<FeatureKey>>>> = LazyLock::new(|| {
-    OVERWORLD_BIOMES
-        .iter()
-        .chain(NETHER_BIOMES)
-        .chain(END_BIOMES)
+    overworld_biomes()
+        .into_iter()
+        .chain(nether_biomes())
+        .chain(END_BIOMES.iter().copied())
         .map(|biome| (biome.id, feature_keys(biome)))
         .collect()
 });

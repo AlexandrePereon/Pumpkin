@@ -1,4 +1,6 @@
 use pumpkin_data::chunk::{Biome, BiomeTree, NETHER_BIOME_SOURCE, OVERWORLD_BIOME_SOURCE};
+
+use crate::biome::{DatapackDimension, datapack_biomes};
 use pumpkin_data::dimension::Dimension;
 use pumpkin_util::math::position::BlockPos;
 use rustc_hash::FxHashSet;
@@ -67,12 +69,16 @@ fn find_in_noise_world(
         return None;
     }
 
+    let (nether, overworld) = (
+        MultiNoiseBiomeSupplier::nether(),
+        MultiNoiseBiomeSupplier::overworld(),
+    );
     let supplier: &dyn BiomeSupplier = if generator.dimension == Dimension::THE_END {
         &TheEndBiomeSupplier
     } else if generator.dimension == Dimension::THE_NETHER {
-        &MultiNoiseBiomeSupplier::NETHER
+        &nether
     } else {
-        &MultiNoiseBiomeSupplier::OVERWORLD
+        &overworld
     };
 
     let mut sampler = MultiNoiseSampler::generate(&generator.base_router.multi_noise);
@@ -143,10 +149,16 @@ pub fn possible_biomes(dimension: &Dimension) -> FxHashSet<u8> {
         ] {
             out.insert(biome.id);
         }
-    } else if *dimension == Dimension::THE_NETHER {
-        collect_tree_biomes(&NETHER_BIOME_SOURCE, &mut out);
     } else {
-        collect_tree_biomes(&OVERWORLD_BIOME_SOURCE, &mut out);
+        let (datapack, compiled) = if *dimension == Dimension::THE_NETHER {
+            (DatapackDimension::Nether, &NETHER_BIOME_SOURCE)
+        } else {
+            (DatapackDimension::Overworld, &OVERWORLD_BIOME_SOURCE)
+        };
+        match datapack_biomes(datapack) {
+            Some(biomes) => out.extend(biomes.iter().map(|biome| biome.id)),
+            None => collect_tree_biomes(compiled, &mut out),
+        }
     }
     out
 }

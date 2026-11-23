@@ -218,8 +218,8 @@ fn search_structure_starts(
                                 let mut biome_sampler = MultiNoiseSampler::generate(
                                     &noise_generator.base_router.multi_noise,
                                 );
-                                let biome_supplier: &dyn BiomeSupplier =
-                                    &MultiNoiseBiomeSupplier::OVERWORLD;
+                                let overworld = MultiNoiseBiomeSupplier::overworld();
+                                let biome_supplier: &dyn BiomeSupplier = &overworld;
                                 let context = StructureGeneratorContext {
                                     seed: world_seed,
                                     chunk_x,

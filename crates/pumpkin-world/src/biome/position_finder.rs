@@ -259,6 +259,40 @@ impl<T: Clone> Clone for RTreeNode<T> {
     }
 }
 
+/// Vanilla's `Climate.RTree.CHILDREN_PER_NODE` (26.3: `create` builds with 19; older
+/// versions used 6).
+const CHILDREN_PER_NODE: usize = 19;
+
+/// A parameter's centre as vanilla computes it, `(min + max) / 2L`: `midpoint` rounds towards
+/// zero as Java's division does.
+const fn center(parameter: &Parameter) -> i64 {
+    i64::midpoint(parameter.min, parameter.max)
+}
+
+/// Vanilla's `Climate.RTree.sort` comparator: by centre (absolute or not) along `dimension`,
+/// then each following dimension in turn.
+fn compare_spaces(
+    a: &[Parameter; 7],
+    b: &[Parameter; 7],
+    dimensions: usize,
+    dimension: usize,
+    absolute: bool,
+) -> std::cmp::Ordering {
+    for d in 0..dimensions {
+        let dim = (dimension + d) % dimensions;
+        let (center_a, center_b) = (center(&a[dim]), center(&b[dim]));
+        let ord = if absolute {
+            center_a.abs().cmp(&center_b.abs())
+        } else {
+            center_a.cmp(&center_b)
+        };
+        if ord != std::cmp::Ordering::Equal {
+            return ord;
+        }
+    }
+    std::cmp::Ordering::Equal
+}
+
 pub struct RTree<T> {
     root: RTreeNode<T>,
 }
@@ -293,12 +327,11 @@ impl<T: Clone> RTree<T> {
             return children.remove(0);
         }
 
-        if children.len() <= 6 {
+        if children.len() <= CHILDREN_PER_NODE {
             children.sort_by_key(|leaf| {
                 let mut total_magnitude = 0i64;
                 for dx in 0..dimensions {
-                    let parameter = leaf.parameter_space()[dx];
-                    total_magnitude += i64::midpoint(parameter.min, parameter.max).abs();
+                    total_magnitude += center(&leaf.parameter_space()[dx]).abs();
                 }
                 total_magnitude
             });
@@ -329,15 +362,16 @@ impl<T: Clone> RTree<T> {
             }
         }
 
-        min_buckets.sort_by_key(|bucket| {
-            let space = Self::build_parameter_space(bucket);
-            let param = space[min_dimension];
-            i64::midpoint(param.min, param.max).abs()
-        });
-
-        let sub_children: Vec<RTreeNode<T>> = min_buckets
+        // Vanilla sorts the buckets (as subtrees) with the same comparator chain as the
+        // children, absolute, from the chosen dimension on.
+        let mut spaced: Vec<([Parameter; 7], Vec<RTreeNode<T>>)> = min_buckets
             .into_iter()
-            .map(|b| Self::build(dimensions, b))
+            .map(|bucket| (Self::build_parameter_space(&bucket), bucket))
+            .collect();
+        spaced.sort_by(|(a, _), (b, _)| compare_spaces(a, b, dimensions, min_dimension, true));
+        let sub_children: Vec<RTreeNode<T>> = spaced
+            .into_iter()
+            .map(|(_, bucket)| Self::build(dimensions, bucket))
             .collect();
         let parameter_space = Self::build_parameter_space(&sub_children);
         RTreeNode::SubTree(RTreeSubTree {
@@ -353,28 +387,22 @@ impl<T: Clone> RTree<T> {
         absolute: bool,
     ) {
         children.sort_by(|a, b| {
-            for d in 0..dimensions {
-                let dim = (dimension + d) % dimensions;
-                let param_a = a.parameter_space()[dim];
-                let param_b = b.parameter_space()[dim];
-                let center_a = i64::midpoint(param_a.min, param_a.max);
-                let center_b = i64::midpoint(param_b.min, param_b.max);
-                let val_a = if absolute { center_a.abs() } else { center_a };
-                let val_b = if absolute { center_b.abs() } else { center_b };
-                let ord = val_a.cmp(&val_b);
-                if ord != std::cmp::Ordering::Equal {
-                    return ord;
-                }
-            }
-            std::cmp::Ordering::Equal
+            compare_spaces(
+                a.parameter_space(),
+                b.parameter_space(),
+                dimensions,
+                dimension,
+                absolute,
+            )
         });
     }
 
     fn bucketize(nodes: &[RTreeNode<T>]) -> Vec<Vec<RTreeNode<T>>> {
         let mut buckets = Vec::new();
         let mut current_bucket = Vec::new();
+        let per_node = CHILDREN_PER_NODE as f64;
         let expected_children_count =
-            6.0f64.powf(((nodes.len() as f64 - 0.01).ln() / 6.0f64.ln()).floor()) as usize;
+            per_node.powf(((nodes.len() as f64 - 0.01).ln() / per_node.ln()).floor()) as usize;
 
         for child in nodes {
             current_bucket.push(child.clone());
@@ -464,6 +492,36 @@ impl<T: Clone> RTree<T> {
                 }
             }
         }
+    }
+}
+
+impl RTree<&'static pumpkin_data::chunk::Biome> {
+    /// The tree as the generated [`BiomeTree`](pumpkin_data::chunk::BiomeTree) the biome
+    /// suppliers search, leaked: built once per process, from a datapack's parameter list.
+    #[must_use]
+    pub fn leak_biome_tree(&self) -> &'static pumpkin_data::chunk::BiomeTree {
+        use pumpkin_data::chunk::BiomeTree;
+        fn convert(node: &RTreeNode<&'static pumpkin_data::chunk::Biome>) -> BiomeTree {
+            match node {
+                RTreeNode::Leaf(leaf) => BiomeTree::Leaf {
+                    parameters: leaf.parameter_space,
+                    biome: leaf.value,
+                },
+                RTreeNode::SubTree(subtree) => BiomeTree::Branch {
+                    parameters: subtree.parameter_space,
+                    nodes: Box::leak(subtree.children.iter().map(convert).collect()),
+                },
+            }
+        }
+        // The suppliers expect a branch at the root; a single leaf gets one.
+        let root = match &self.root {
+            leaf @ RTreeNode::Leaf(_) => BiomeTree::Branch {
+                parameters: *leaf.parameter_space(),
+                nodes: Box::leak(Box::new([convert(leaf)])),
+            },
+            subtree @ RTreeNode::SubTree(_) => convert(subtree),
+        };
+        Box::leak(Box::new(root))
     }
 }
 

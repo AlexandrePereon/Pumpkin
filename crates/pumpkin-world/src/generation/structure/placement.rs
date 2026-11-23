@@ -312,12 +312,12 @@ impl GlobalStructureCache {
         let mut result = None;
         let mut found = 0;
 
+        let overworld = MultiNoiseBiomeSupplier::overworld();
         for z in -28..=28 {
             for x in -28..=28 {
                 let noise_x = noise_center_x + x;
                 let noise_z = noise_center_z + z;
-                let biome =
-                    MultiNoiseBiomeSupplier::OVERWORLD.biome(noise_x, 0, noise_z, &mut sampler);
+                let biome = overworld.biome(noise_x, 0, noise_z, &mut sampler);
                 if preferred_biomes.contains(&(biome.id as u16)) {
                     if result.is_none() || search_rng.next_bounded_i32(found + 1) == 0 {
                         result = Some((noise_x >> 2, noise_z >> 2));

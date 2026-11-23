@@ -11,9 +11,10 @@
 //! global order of its step, shifting the indices, hence the decoration seeds, of those after
 //! it, as in vanilla.
 //!
-//! A biome's other fields (climate, effects, spawners) are not read: the climate a feature
-//! reads (`freeze_top_layer`) stays the compiled one. A biome of a pack's own namespace is not
-//! placed: the biome sources are compiled and biome ids are `u8`.
+//! A biome's other fields (climate, effects, spawners) are not read here: an overridden
+//! vanilla biome keeps its compiled climate (`freeze_top_layer` reads it); a biome of a pack's
+//! own namespace gets its climate from its file when it is built and installed beforehand
+//! (see [`crate::biome::datapack`]), and its lists here like any other.
 //!
 //! Like the other worldgen overlays, installed once before the worlds are created.
 
@@ -72,9 +73,10 @@ impl DatapackBiomes {
     }
 }
 
-/// The vanilla id of a `minecraft:` biome datapacks may override.
-fn vanilla_biome(id: &str) -> Option<&'static Biome> {
-    id.strip_prefix("minecraft:").and_then(Biome::from_name)
+/// The biome a datapack file is for: vanilla's, or one of the packs' own once installed
+/// (`pumpkin_data::biome_extension`, see [`crate::biome::datapack`]).
+fn known_biome(id: &str) -> Option<&'static Biome> {
+    Biome::from_name(id.strip_prefix("minecraft:").unwrap_or(id))
 }
 
 /// The vanilla configured carvers, by id: those of the compiled plains (`cave`,
@@ -200,9 +202,9 @@ impl WorldgenJson {
             own_ids: HashMap::new(),
         };
         for id in self.datapack_ids(WorldgenRegistry::Biome) {
-            let Some(biome) = vanilla_biome(&id) else {
+            let Some(biome) = known_biome(&id) else {
                 errors.push(format!(
-                    "{id}: a biome of a pack's own is not placed (the biome sources are compiled)"
+                    "{id}: not a known biome (its own were not installed)"
                 ));
                 continue;
             };

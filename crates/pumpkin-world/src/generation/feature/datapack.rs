@@ -193,7 +193,7 @@ impl WorldgenJson {
         (built, errors)
     }
 
-    pub(super) fn datapack_ids(&self, registry: WorldgenRegistry) -> Vec<String> {
+    pub(crate) fn datapack_ids(&self, registry: WorldgenRegistry) -> Vec<String> {
         self.ids(registry)
             .filter(|id| self.get(registry, id).is_some_and(|(_, ours)| *ours))
             .map(str::to_string)

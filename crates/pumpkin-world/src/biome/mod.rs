@@ -1,11 +1,12 @@
 use rustc_hash::FxHashSet;
 use sha2::{Digest, Sha256};
 use std::cell::RefCell;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, OnceLock};
 
 use pumpkin_data::chunk::{Biome, BiomeTree, NETHER_BIOME_SOURCE, OVERWORLD_BIOME_SOURCE};
 
 use crate::generation::noise::router::multi_noise_sampler::MultiNoiseSampler;
+pub mod datapack;
 pub mod end;
 pub mod multi_noise;
 pub mod position_finder;
@@ -207,12 +208,79 @@ impl FlatBiomeTree {
 enum FlatTreeKind {
     Overworld,
     Nether,
+    DatapackOverworld,
+    DatapackNether,
 }
 
 static OVERWORLD_FLAT_TREE: LazyLock<FlatBiomeTree> =
     LazyLock::new(|| FlatBiomeTree::from_tree(&OVERWORLD_BIOME_SOURCE));
 static NETHER_FLAT_TREE: LazyLock<FlatBiomeTree> =
     LazyLock::new(|| FlatBiomeTree::from_tree(&NETHER_BIOME_SOURCE));
+
+/// A dimension whose biome source a datapack can give (`dimension/<name>.json`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DatapackDimension {
+    Overworld,
+    Nether,
+}
+
+/// A `multi_noise` biome source built from a datapack's parameter list.
+struct DatapackSource {
+    tree: &'static BiomeTree,
+    flat: FlatBiomeTree,
+    /// The biomes in the order the list first names them: vanilla's `possibleBiomes`, the
+    /// order the feature sorter visits.
+    biomes: Vec<&'static Biome>,
+}
+
+static DATAPACK_OVERWORLD: OnceLock<DatapackSource> = OnceLock::new();
+static DATAPACK_NETHER: OnceLock<DatapackSource> = OnceLock::new();
+
+const fn datapack_slot(dimension: DatapackDimension) -> &'static OnceLock<DatapackSource> {
+    match dimension {
+        DatapackDimension::Overworld => &DATAPACK_OVERWORLD,
+        DatapackDimension::Nether => &DATAPACK_NETHER,
+    }
+}
+
+/// Installs a datapack's biome source for `dimension`: vanilla's `Climate.RTree` built from
+/// the parameter list, in list order. Returns false if one was already installed.
+///
+/// Once per process, before the worlds are created: as in vanilla, a datapack's dimension
+/// replaces the generator the world was saved with.
+///
+/// # Panics
+///
+/// If `list` is empty.
+#[must_use]
+pub fn install_datapack_source(
+    dimension: DatapackDimension,
+    list: Vec<(ParameterPoint, &'static Biome)>,
+) -> bool {
+    let mut biomes: Vec<&'static Biome> = Vec::new();
+    for (_, biome) in &list {
+        if !biomes.contains(biome) {
+            biomes.push(biome);
+        }
+    }
+    let tree = RTree::create(list).leak_biome_tree();
+    datapack_slot(dimension)
+        .set(DatapackSource {
+            tree,
+            flat: FlatBiomeTree::from_tree(tree),
+            biomes,
+        })
+        .is_ok()
+}
+
+/// The biomes of a datapack's source for `dimension`, in the order its list first names
+/// them, if one is installed.
+#[must_use]
+pub fn datapack_biomes(dimension: DatapackDimension) -> Option<&'static [&'static Biome]> {
+    datapack_slot(dimension)
+        .get()
+        .map(|source| source.biomes.as_slice())
+}
 
 thread_local! {
     /// A shortcut; check if last used biome is what we should use.
@@ -252,6 +320,29 @@ impl MultiNoiseBiomeSupplier {
     const fn new(source: &'static BiomeTree, flat_kind: FlatTreeKind) -> Self {
         Self { source, flat_kind }
     }
+
+    /// The overworld's source: a datapack's if one is installed, else vanilla's.
+    #[must_use]
+    pub fn overworld() -> Self {
+        Self::from_datapack(DatapackDimension::Overworld).unwrap_or(Self::OVERWORLD)
+    }
+
+    /// The nether's source: a datapack's if one is installed, else vanilla's.
+    #[must_use]
+    pub fn nether() -> Self {
+        Self::from_datapack(DatapackDimension::Nether).unwrap_or(Self::NETHER)
+    }
+
+    /// The datapack's source for `dimension`, if one is installed.
+    #[must_use]
+    pub fn from_datapack(dimension: DatapackDimension) -> Option<Self> {
+        let source = datapack_slot(dimension).get()?;
+        let kind = match dimension {
+            DatapackDimension::Overworld => FlatTreeKind::DatapackOverworld,
+            DatapackDimension::Nether => FlatTreeKind::DatapackNether,
+        };
+        Some(Self::new(source.tree, kind))
+    }
 }
 
 impl BiomeSupplier for MultiNoiseBiomeSupplier {
@@ -261,6 +352,12 @@ impl BiomeSupplier for MultiNoiseBiomeSupplier {
         let flat_tree = match self.flat_kind {
             FlatTreeKind::Overworld => &*OVERWORLD_FLAT_TREE,
             FlatTreeKind::Nether => &*NETHER_FLAT_TREE,
+            FlatTreeKind::DatapackOverworld => DATAPACK_OVERWORLD
+                .get()
+                .map_or_else(|| &*OVERWORLD_FLAT_TREE, |source| &source.flat),
+            FlatTreeKind::DatapackNether => DATAPACK_NETHER
+                .get()
+                .map_or_else(|| &*NETHER_FLAT_TREE, |source| &source.flat),
         };
         LAST_FLAT_LEAF
             .with_borrow_mut(|last_result| flat_tree.get(self.flat_kind, &point_list, last_result))
@@ -343,6 +440,18 @@ impl ActiveBiomeSupplier {
         source: Option<&crate::world_info::BiomeSource>,
         dimension: &pumpkin_data::dimension::Dimension,
     ) -> Self {
+        // A datapack's dimension replaces the saved source, as vanilla does (its
+        // `world_gen_settings.dat` keeps the preset while the pack's list generates).
+        let datapack = if dimension == &pumpkin_data::dimension::Dimension::OVERWORLD {
+            MultiNoiseBiomeSupplier::from_datapack(DatapackDimension::Overworld)
+        } else if dimension == &pumpkin_data::dimension::Dimension::THE_NETHER {
+            MultiNoiseBiomeSupplier::from_datapack(DatapackDimension::Nether)
+        } else {
+            None
+        };
+        if let Some(supplier) = datapack {
+            return Self::MultiNoise(supplier);
+        }
         match source {
             Some(crate::world_info::BiomeSource::Fixed { biome, .. }) => {
                 let clean = biome.strip_prefix("minecraft:").unwrap_or(biome);
@@ -377,9 +486,9 @@ impl ActiveBiomeSupplier {
         if dimension == &pumpkin_data::dimension::Dimension::THE_END {
             Self::End(end::TheEndBiomeSupplier)
         } else if dimension == &pumpkin_data::dimension::Dimension::THE_NETHER {
-            Self::MultiNoise(MultiNoiseBiomeSupplier::NETHER)
+            Self::MultiNoise(MultiNoiseBiomeSupplier::nether())
         } else {
-            Self::MultiNoise(MultiNoiseBiomeSupplier::OVERWORLD)
+            Self::MultiNoise(MultiNoiseBiomeSupplier::overworld())
         }
     }
 }
