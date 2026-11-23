@@ -1282,7 +1282,17 @@ impl ProtoChunk {
         let has_eroded_badlands = surface_biomes.contains_biome(Biome::ERODED_BADLANDS.id);
         let has_frozen_ocean = surface_biomes.contains_biome(Biome::FROZEN_OCEAN.id)
             || surface_biomes.contains_biome(Biome::DEEP_FROZEN_OCEAN.id);
-        let check_column_biome = has_eroded_badlands || has_frozen_ocean;
+        // Registered surface builders run in any biome they accept, so every column's biome
+        // is then looked up, as vanilla always does.
+        let has_builders = super::surface::extension::any();
+        let check_column_biome = has_eroded_badlands || has_frozen_ocean || has_builders;
+        let mut builder_biome_sampler = None;
+        let mut builder_biome_at = |x: i32, y: i32, z: i32| -> &'static Biome {
+            let sampler = builder_biome_sampler.get_or_insert_with(|| {
+                MultiNoiseSampler::generate(&generator.base_router.multi_noise)
+            });
+            generator.biome_supplier.biome(x >> 2, y >> 2, z >> 2, sampler)
+        };
 
         for local_x in 0..16 {
             for local_z in 0..16 {
@@ -1306,6 +1316,15 @@ impl ProtoChunk {
                     ) else {
                         panic!("surface biome neighborhood must cover fuzzy biome lookup");
                     };
+                    if has_builders {
+                        self.run_surface_builders(
+                            id,
+                            (x, z, top_block, settings.sea_level),
+                            None,
+                            generator,
+                            &mut builder_biome_at,
+                        );
+                    }
                     if id == Biome::ERODED_BADLANDS {
                         terrain_cache
                             .terrain_builder
@@ -1313,6 +1332,7 @@ impl ProtoChunk {
                     }
                     id
                 });
+                let start_height = top_block;
 
                 let top_block = self.top_block_height_exclusive(local_x, local_z);
 
@@ -1380,6 +1400,20 @@ impl ProtoChunk {
                         self.set_block_state(x, y, z, state);
                     }
                 }
+                if has_builders
+                    && let Some(id) = this_biome
+                    && Biome::from_id(id).is_some_and(super::surface::extension::applies)
+                {
+                    let min_surface_level =
+                        estimate_surface_height(&mut context, surface_height_estimate_sampler);
+                    self.run_surface_builders(
+                        id,
+                        (x, z, start_height, settings.sea_level),
+                        Some(min_surface_level),
+                        generator,
+                        &mut builder_biome_at,
+                    );
+                }
                 if let Some(this_biome) = this_biome
                     && (this_biome == Biome::FROZEN_OCEAN || this_biome == Biome::DEEP_FROZEN_OCEAN)
                 {
@@ -1399,6 +1433,48 @@ impl ProtoChunk {
                 }
             }
         }
+    }
+
+    /// Runs the registered surface builders that accept the biome `id` for one column
+    /// (`column`: block x and z, start height, sea level), early or, with the minimum
+    /// surface level, late.
+    fn run_surface_builders(
+        &mut self,
+        id: u8,
+        column: (i32, i32, i32, i32),
+        late: Option<i32>,
+        generator: &super::generator::VanillaGenerator,
+        biome_at: &mut dyn FnMut(i32, i32, i32) -> &'static Biome,
+    ) {
+        let Some(biome) = Biome::from_id(id) else {
+            return;
+        };
+        let (x, z, start_height, sea_level) = column;
+        let mut random = generator
+            .random_config
+            .base_random_deriver
+            .split_pos(x, start_height, z);
+        let min_y = i32::from(self.generation_bottom_y());
+        let max_y = min_y + i32::from(self.generation_height()) - 1;
+        let mut column = super::surface::extension::SurfaceColumn {
+            chunk: self,
+            x,
+            z,
+            min_y,
+            max_y,
+        };
+        let mut ctx = super::surface::extension::SurfaceContext {
+            column: &mut column,
+            biome,
+            x,
+            z,
+            start_height,
+            sea_level,
+            random: &mut random,
+            surface_noise: &generator.terrain_cache.surface_noise,
+            biome_at,
+        };
+        super::surface::extension::run(&mut ctx, late);
     }
 
     pub fn generate_features_and_structure<T: GenerationCache>(

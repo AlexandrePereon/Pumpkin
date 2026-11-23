@@ -17,6 +17,8 @@ pub mod proto_chunk_test;
 pub mod rule;
 pub mod structure;
 mod surface;
+/// Surface builders of a server that ports content (`surface::extension`).
+pub use surface::extension as surface_extension;
 /// Surface rules built from datapack JSON.
 pub use surface::datapack as surface_datapack;
 

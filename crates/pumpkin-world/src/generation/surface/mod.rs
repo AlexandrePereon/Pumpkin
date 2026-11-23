@@ -30,6 +30,7 @@ use super::{
 
 pub mod datapack;
 pub mod rule;
+pub mod extension;
 pub mod terrain;
 
 pub struct MaterialRuleContext<'a> {
