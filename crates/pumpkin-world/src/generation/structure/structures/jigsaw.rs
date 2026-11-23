@@ -106,6 +106,31 @@ pub fn add_template_pool_elements(
     Ok(())
 }
 
+/// A check run before a template pool element's structure template is placed: given the
+/// template's id and the piece's position, whether to place it.
+pub type ElementPlacementCheck = fn(template: &str, position: BlockPos) -> bool;
+
+static ELEMENT_PLACEMENT_CHECKS: std::sync::RwLock<Vec<ElementPlacementCheck>> =
+    std::sync::RwLock::new(Vec::new());
+
+/// Adds a check that can refuse to place a pool element's template.
+///
+/// A mod does it by cancelling `SinglePoolElement.place` (Waystones: no village waystone near
+/// another one). It runs each time the piece is placed, once per chunk it spans, with the same position.
+/// A refused template places nothing; in a list element, neither do the ones after it, as
+/// vanilla's `ListPoolElement` stops at the first that fails.
+pub fn add_element_placement_check(check: ElementPlacementCheck) {
+    if let Ok(mut checks) = ELEMENT_PLACEMENT_CHECKS.write() {
+        checks.push(check);
+    }
+}
+
+fn element_placement_allowed(template: &str, position: BlockPos) -> bool {
+    ELEMENT_PLACEMENT_CHECKS.read().map_or(true, |checks| {
+        checks.iter().all(|check| check(template, position))
+    })
+}
+
 /// Registers a dynamically-loaded template pool from a runtime datapack.
 pub fn register_dynamic_template_pool(id: &str, pool: Arc<TemplatePool>) {
     let key = canonical_pool_id(id);
@@ -943,8 +968,13 @@ impl StructurePieceBase for PoolElementStructurePiece {
         let origin =
             pumpkin_util::math::vector3::Vector3::new(self.pos.0.x, self.pos.0.y, self.pos.0.z);
 
+        let mut refused = false;
         self.element
-            .for_each_template(|_name, processor_list, legacy, template| {
+            .for_each_template(|name, processor_list, legacy, template| {
+                refused = refused || !element_placement_allowed(name, self.pos);
+                if refused {
+                    return;
+                }
                 let corner = self.rotation.rotate_offset(
                     template.size.x.saturating_sub(1),
                     template.size.z.saturating_sub(1),
@@ -1003,9 +1033,14 @@ pub fn place_pool_element_templates(
 ) {
     let origin = Vector3::new(piece.pos.0.x, piece.pos.0.y, piece.pos.0.z);
 
+    let mut refused = false;
     piece
         .element
-        .for_each_template(|_name, processor_list, legacy, template| {
+        .for_each_template(|name, processor_list, legacy, template| {
+            refused = refused || !element_placement_allowed(name, piece.pos);
+            if refused {
+                return;
+            }
             let corner = piece.rotation.rotate_offset(
                 template.size.x.saturating_sub(1),
                 template.size.z.saturating_sub(1),
@@ -1210,6 +1245,25 @@ mod tests {
             PoolElementKind::Single { template, .. } => (template.as_str(), element.weight),
             _ => panic!("not a single element"),
         }
+    }
+
+    #[test]
+    fn placement_checks_can_refuse_a_template() {
+        add_element_placement_check(|template, position| {
+            template != "verse_test:refused" || position.0.y > 0
+        });
+        assert!(element_placement_allowed(
+            "verse_test:refused",
+            BlockPos::new(0, 5, 0)
+        ));
+        assert!(!element_placement_allowed(
+            "verse_test:refused",
+            BlockPos::new(0, -5, 0)
+        ));
+        assert!(element_placement_allowed(
+            "verse_test:other",
+            BlockPos::new(0, -5, 0)
+        ));
     }
 
     #[test]
