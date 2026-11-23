@@ -8,7 +8,9 @@
 //! `worldgen/placed_feature` and `worldgen/block_state_provider` into the features they
 //! override (see [`pumpkin_world::generation::feature::datapack`]); `worldgen/biome` into the
 //! feature lists and carvers of the vanilla biomes it overrides (see
-//! [`pumpkin_world::generation::feature::biome_datapack`]); `worldgen/structure` and
+//! [`pumpkin_world::generation::feature::biome_datapack`]), to which the biome modifications
+//! code registered add their features (see
+//! [`pumpkin_world::generation::feature::biome_modification`]); `worldgen/structure` and
 //! `worldgen/structure_set` files of a pack's own namespace into structures of registered
 //! types and their sets (see [`pumpkin_world::generation::structure::datapack`]).
 //!
@@ -26,6 +28,7 @@ use std::path::Path;
 
 use pumpkin_world::biome::{self, DatapackDimension};
 use pumpkin_world::generation::feature::biome_datapack;
+use pumpkin_world::generation::feature::biome_modification;
 use pumpkin_world::generation::feature::datapack as feature_datapack;
 use pumpkin_world::generation::noise::router::datapack::{self, WorldgenJson, WorldgenRegistry};
 use pumpkin_world::generation::structure::datapack as structure_datapack;
@@ -194,7 +197,7 @@ pub fn install_biomes(loaded: &LoadedWorldgen) {
 /// Call once, before the worlds are loaded.
 pub fn install(loaded: LoadedWorldgen) {
     let LoadedWorldgen { json, files, .. } = loaded;
-    if files == 0 {
+    if files == 0 && !biome_modification::any() {
         return;
     }
     let (built, errors) = json.build_datapack_noise_settings();
@@ -246,11 +249,17 @@ pub fn install(loaded: LoadedWorldgen) {
             warn!("Datapack biome kept compiled: {error}");
         }
     }
-    if !biomes.is_empty() {
+    if !biomes.names().is_empty() {
         info!(
             "Biome feature lists and carvers built from datapacks for: {} ({} placed feature(s) of their own)",
             biomes.names().join(", "),
             biomes.own_count()
+        );
+    }
+    if !biomes.modified().is_empty() {
+        info!(
+            "Biome modifications added features to: {}",
+            biomes.modified().join(", ")
         );
     }
     if !biome_datapack::install(biomes) {

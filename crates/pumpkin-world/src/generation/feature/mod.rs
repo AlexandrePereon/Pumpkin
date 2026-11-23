@@ -1,4 +1,5 @@
 pub mod biome_datapack;
+pub mod biome_modification;
 pub mod configured_features;
 pub mod datapack;
 pub mod extension;

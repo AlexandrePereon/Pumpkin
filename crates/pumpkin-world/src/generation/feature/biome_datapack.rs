@@ -27,6 +27,7 @@ use pumpkin_data::chunk::Biome;
 use pumpkin_data::placed_feature::PlacedFeature as PlacedFeatureKey;
 use serde_json::Value;
 
+use super::biome_modification::BiomeModification;
 use super::datapack::FeatureParser;
 use super::placed_features::PlacedFeature;
 use crate::generation::noise::router::datapack::{Result, WorldgenJson, WorldgenRegistry, full_id};
@@ -52,18 +53,26 @@ pub struct DatapackBiomes {
     own: Vec<(Option<String>, PlacedFeature)>,
     /// The overridden biomes' ids, sorted.
     names: Vec<String>,
+    /// The biomes code modifications changed (see [`super::biome_modification`]), sorted.
+    modified: Vec<String>,
 }
 
 impl DatapackBiomes {
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        self.names.is_empty()
+        self.names.is_empty() && self.modified.is_empty()
     }
 
     /// The overridden biomes' ids, sorted.
     #[must_use]
     pub fn names(&self) -> &[String] {
         &self.names
+    }
+
+    /// The biomes code modifications added features to, sorted.
+    #[must_use]
+    pub fn modified(&self) -> &[String] {
+        &self.modified
     }
 
     /// How many of the packs' own placed features the biomes list.
@@ -203,11 +212,88 @@ impl Builder<'_> {
     }
 }
 
+impl Builder<'_> {
+    /// Applies the registered biome modifications ([`super::biome_modification`]) to every
+    /// biome, vanilla's and the packs' own: each matching one gets the feature at the end of
+    /// the step's list, starting from the list a datapack file left, else the compiled one.
+    fn apply_modifications(
+        &mut self,
+        modifications: &[BiomeModification],
+        built: &mut DatapackBiomes,
+        errors: &mut Vec<String>,
+    ) {
+        {
+            if modifications.is_empty() {
+                return;
+            }
+            let mut ordered: Vec<&BiomeModification> = modifications.iter().collect();
+            ordered.sort_by(|a, b| a.id.cmp(&b.id));
+            let mut failed: Vec<&str> = Vec::new();
+            for biome in pumpkin_data::biome_extension::all() {
+                let mut list: Option<Vec<Vec<FeatureKey>>> = None;
+                for &modification in &ordered {
+                    if failed.contains(&modification.id.as_str()) || !(modification.biomes)(biome)
+                    {
+                        continue;
+                    }
+                    let key = match self.feature(&Value::String(modification.feature.clone())) {
+                        Ok(key) => key,
+                        Err(error) => {
+                            errors.push(format!("biome modification {}: {error}", modification.id));
+                            failed.push(&modification.id);
+                            continue;
+                        }
+                    };
+                    let steps = list.get_or_insert_with(|| {
+                        built
+                            .features
+                            .get(&biome.id)
+                            .cloned()
+                            .unwrap_or_else(|| compiled_lists(biome))
+                    });
+                    if steps.len() <= modification.step {
+                        steps.resize_with(modification.step + 1, Vec::new);
+                    }
+                    steps[modification.step].push(key);
+                }
+                if let Some(steps) = list {
+                    built.features.insert(biome.id, steps);
+                    built.modified.push(pumpkin_data::biome_extension::full_id(biome));
+                }
+            }
+            built.modified.sort_unstable();
+        }
+    }
+}
+
+/// `biome`'s compiled feature lists.
+fn compiled_lists(biome: &Biome) -> Vec<Vec<FeatureKey>> {
+    biome
+        .features
+        .iter()
+        .map(|step| step.iter().copied().map(FeatureKey::Vanilla).collect())
+        .collect()
+}
+
 impl WorldgenJson {
-    /// Builds every datapack `worldgen/biome` file that overrides a vanilla biome. Returns
-    /// them, and one message per file that failed or was skipped (that biome stays compiled).
+    /// Builds every datapack `worldgen/biome` file that overrides a vanilla biome, then applies
+    /// the registered biome modifications ([`super::biome_modification`]). Returns them, and
+    /// one message per file or modification that failed or was skipped (that biome stays
+    /// compiled; that modification adds nothing).
     #[must_use]
     pub fn build_datapack_biomes(&self) -> (DatapackBiomes, Vec<String>) {
+        super::biome_modification::with_registered(|modifications| {
+            self.build_datapack_biomes_with(modifications)
+        })
+    }
+
+    /// [`Self::build_datapack_biomes`], with these biome modifications in place of the
+    /// registered ones.
+    #[must_use]
+    pub fn build_datapack_biomes_with(
+        &self,
+        modifications: &[BiomeModification],
+    ) -> (DatapackBiomes, Vec<String>) {
         let mut built = DatapackBiomes::default();
         let mut errors = Vec::new();
         let mut builder = Builder {
@@ -244,6 +330,8 @@ impl WorldgenJson {
                 }
             }
         }
+        builder.placeholders = false;
+        builder.apply_modifications(modifications, &mut built, &mut errors);
         built.own = builder.own;
         built.names.sort_unstable();
         errors.extend(
@@ -526,6 +614,74 @@ pub mod tests {
         for other in [0, 1, 2, 3, 4, 5, 7, 8, 9, 10] {
             assert_eq!(with_pack[other], without[other], "step {other}");
         }
+    }
+
+    #[test]
+    fn a_modification_adds_a_pack_feature_to_tagged_biomes() {
+        use crate::generation::feature::biome_modification::BiomeModification;
+
+        let mut json = WorldgenJson::vanilla();
+        json.insert_from_datapack(
+            WorldgenRegistry::PlacedFeature,
+            "verse:diamond_ore",
+            pack_ore(),
+        );
+        // A datapack's plains, already carrying one feature of the pack's.
+        json.insert_from_datapack(
+            WorldgenRegistry::Biome,
+            "minecraft:plains",
+            biome_with("plains", json!("verse:diamond_ore")),
+        );
+        let in_tag = |biome: &'static Biome| {
+            pumpkin_data::tag::get_tag_values(
+                pumpkin_data::tag::RegistryKey::WorldgenBiome,
+                "minecraft:is_forest",
+            )
+            .is_some_and(|names| names.contains(&biome.registry_id))
+        };
+        let modifications = [
+            // Applied second (ids in order), after the vegetal step's last feature.
+            BiomeModification {
+                id: "verse:b".into(),
+                step: 9,
+                feature: "minecraft:ore_diamond".into(),
+                biomes: Box::new(in_tag),
+            },
+            BiomeModification {
+                id: "verse:a".into(),
+                step: 9,
+                feature: "verse:diamond_ore".into(),
+                biomes: Box::new(|biome| biome.id == Biome::FOREST.id || biome.id == Biome::PLAINS.id),
+            },
+            // Refused: no such feature; reported once.
+            BiomeModification {
+                id: "verse:c".into(),
+                step: 9,
+                feature: "verse:missing".into(),
+                biomes: Box::new(|_| true),
+            },
+        ];
+        let (built, errors) = json.build_datapack_biomes_with(&modifications);
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(built.names(), ["minecraft:plains"]);
+        assert!(built.modified().contains(&"minecraft:forest".to_string()));
+        assert!(built.modified().contains(&"minecraft:birch_forest".to_string()));
+        assert!(built.modified().contains(&"minecraft:plains".to_string()));
+        assert!(!built.modified().contains(&"minecraft:desert".to_string()));
+        // One pack feature, shared by the file and the modification.
+        assert_eq!(built.own_count(), 1);
+        let mut forest = compiled(&Biome::FOREST);
+        forest[9].push(FeatureKey::Pack(0));
+        forest[9].push(FeatureKey::Vanilla(PlacedFeatureKey::OreDiamond));
+        assert_eq!(built.features[&Biome::FOREST.id], forest);
+        let mut plains = compiled(&Biome::PLAINS);
+        plains[6].push(FeatureKey::Pack(0));
+        plains[9].push(FeatureKey::Pack(0));
+        assert_eq!(built.features[&Biome::PLAINS.id], plains);
+        let mut birch = compiled(&Biome::BIRCH_FOREST);
+        birch[9].push(FeatureKey::Vanilla(PlacedFeatureKey::OreDiamond));
+        assert_eq!(built.features[&Biome::BIRCH_FOREST.id], birch);
+        assert!(!built.features.contains_key(&Biome::DESERT.id));
     }
 
     #[test]
