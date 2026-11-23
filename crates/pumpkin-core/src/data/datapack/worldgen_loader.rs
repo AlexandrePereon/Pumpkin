@@ -8,7 +8,9 @@
 //! `worldgen/placed_feature` and `worldgen/block_state_provider` into the features they
 //! override (see [`pumpkin_world::generation::feature::datapack`]); `worldgen/biome` into the
 //! feature lists and carvers of the vanilla biomes it overrides (see
-//! [`pumpkin_world::generation::feature::biome_datapack`]).
+//! [`pumpkin_world::generation::feature::biome_datapack`]); `worldgen/structure` and
+//! `worldgen/structure_set` files of a pack's own namespace into structures of registered
+//! types and their sets (see [`pumpkin_world::generation::structure::datapack`]).
 //!
 //! A `worldgen/biome` file of a pack's own namespace becomes a biome (installed into
 //! `pumpkin_data::biome_extension`, ids after vanilla's in the synced registry's order), and a
@@ -26,6 +28,7 @@ use pumpkin_world::biome::{self, DatapackDimension};
 use pumpkin_world::generation::feature::biome_datapack;
 use pumpkin_world::generation::feature::datapack as feature_datapack;
 use pumpkin_world::generation::noise::router::datapack::{self, WorldgenJson, WorldgenRegistry};
+use pumpkin_world::generation::structure::datapack as structure_datapack;
 use pumpkin_world::generation::surface_datapack;
 use serde_json::Value;
 use tracing::{info, warn};
@@ -252,5 +255,19 @@ pub fn install(loaded: LoadedWorldgen) {
     }
     if !biome_datapack::install(biomes) {
         warn!("Datapack biomes were installed already; this change needs a restart");
+    }
+    let (structures, errors) = json.build_datapack_structures();
+    for error in &errors {
+        warn!("Datapack structure skipped: {error}");
+    }
+    if !structures.is_empty() {
+        info!(
+            "Structures built from datapacks: {}; structure sets: {}",
+            structures.structure_names().join(", "),
+            structures.set_names().join(", ")
+        );
+    }
+    if let Err(error) = structure_datapack::install(structures) {
+        warn!("Datapack structures not installed: {error}");
     }
 }

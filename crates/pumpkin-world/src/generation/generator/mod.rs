@@ -275,7 +275,7 @@ impl VanillaGenerator {
         let biome_mixer_seed = crate::biome::hash_seed(seed.0);
 
         let mut structure_allowed_biomes = FxHashMap::default();
-        for (i, set) in StructureSet::ALL.iter().enumerate() {
+        for (i, _, set) in pumpkin_data::structure_extension::all_sets() {
             structure_allowed_biomes.insert(
                 i,
                 crate::generation::proto_chunk::ProtoChunk::get_allowed_biomes(set),
@@ -300,10 +300,8 @@ impl VanillaGenerator {
                 .then_some(first)
             })
         };
-        let enabled_structure_sets = StructureSet::NAMES
-            .iter()
-            .enumerate()
-            .filter_map(|(index, &name)| {
+        let enabled_structure_sets = pumpkin_data::structure_extension::all_sets()
+            .filter_map(|(index, name, _)| {
                 let has_biomes = structure_allowed_biomes[&index]
                     .iter()
                     .any(|biome| possible_biomes.contains(biome));

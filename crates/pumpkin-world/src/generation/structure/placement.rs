@@ -1,7 +1,6 @@
 use pumpkin_data::structures::{
     ConcentricRingsStructurePlacement, FrequencyReductionMethod, RandomSpreadStructurePlacement,
     SpreadType, StructurePlacement, StructurePlacementCalculator, StructurePlacementType,
-    StructureSet,
 };
 use pumpkin_util::{
     math::floor_div,
@@ -566,11 +565,7 @@ pub fn should_generate_structure(
         placement.salt,
         placement.frequency.unwrap_or(1.0),
     ) && !placement.exclusion_zone.as_ref().is_some_and(|zone| {
-        let set_name = zone
-            .other_set
-            .strip_prefix("minecraft:")
-            .unwrap_or(zone.other_set);
-        StructureSet::get(set_name).is_some_and(|set| {
+        pumpkin_data::structure_extension::set_by_name(zone.other_set).is_some_and(|set| {
             (chunk_x - zone.chunk_count..=chunk_x + zone.chunk_count).any(|x| {
                 (chunk_z - zone.chunk_count..=chunk_z + zone.chunk_count).any(|z| {
                     should_generate_structure(&set.placement, calculator, x, z, global_cache)

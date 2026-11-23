@@ -4,6 +4,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 use pumpkin_data::block_properties::is_air;
 use pumpkin_data::chunk::DoublePerlinNoiseParameters;
 use pumpkin_data::fluid::{Fluid, FluidState};
+use pumpkin_data::structure_extension;
 use pumpkin_data::structures::{
     Structure, StructureKeys, StructurePlacementType, StructureSet, WeightedEntry,
 };
@@ -1581,12 +1582,23 @@ impl ProtoChunk {
         world_seed: i64,
     ) {
         static STRUCTURES_PER_STEP: LazyLock<[Vec<StructureKeys>; 11]> = LazyLock::new(|| {
+            // Vanilla walks the structure registry, which is ordered by id: path first,
+            // then namespace. A step's index seeds each structure's decoration random.
+            let mut keys: Vec<(String, StructureKeys)> = structure_extension::all_keys()
+                .map(|key| (structure_extension::full_name(key), key))
+                .collect();
+            keys.sort_by(|(a, _), (b, _)| {
+                let order = |id: &str| {
+                    id.split_once(':')
+                        .map_or((id.to_string(), String::new()), |(namespace, path)| {
+                            (path.to_string(), namespace.to_string())
+                        })
+                };
+                order(a).cmp(&order(b))
+            });
             let mut steps: [Vec<StructureKeys>; 11] = Default::default();
-            for name in StructureKeys::all_names() {
-                if let Some(key) = StructureKeys::from_name(name) {
-                    let s = Structure::get(&key);
-                    steps[s.step.ordinal()].push(key);
-                }
+            for (_, key) in keys {
+                steps[Structure::get(&key).step.ordinal()].push(key);
             }
             steps
         });
@@ -1746,7 +1758,7 @@ impl ProtoChunk {
         > = None;
         let mut multi_noise_sampler: Option<MultiNoiseSampler<'_>> = None;
 
-        for (i, set) in StructureSet::ALL.iter().enumerate() {
+        for (i, _, set) in structure_extension::all_sets() {
             if !generator.enabled_structure_sets.contains(&i) {
                 continue;
             }
@@ -1876,7 +1888,7 @@ impl ProtoChunk {
         let mut references = Vec::new();
         let mut candidate_chunks = Vec::with_capacity(4);
 
-        for (set_index, set) in StructureSet::ALL.iter().enumerate() {
+        for (set_index, _, set) in structure_extension::all_sets() {
             if !generator.enabled_structure_sets.contains(&set_index)
                 || !set.structures.iter().any(|entry| wanted(entry.structure))
             {

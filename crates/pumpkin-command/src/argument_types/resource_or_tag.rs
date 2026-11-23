@@ -82,7 +82,8 @@ fn suggest_for_registry(registry: &Identifier, builder: SuggestionsBuilder) -> S
     if *registry == STRUCTURE_REGISTRY {
         let structures = StructureKeys::all_names()
             .iter()
-            .map(|&name| name.to_string());
+            .map(|&name| name.to_string())
+            .chain(pumpkin_data::structure_extension::names().map(str::to_string));
         builder
             .filter_and_suggest_iter(structures.chain(tag_names(RegistryKey::WorldgenStructure)))
             .build()

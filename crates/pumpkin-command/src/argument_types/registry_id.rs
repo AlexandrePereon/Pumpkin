@@ -70,6 +70,7 @@ impl RegistryIdArgumentType {
                 pumpkin_data::structures::StructureKeys::all_names()
                     .iter()
                     .map(|name| (*name).to_owned())
+                    .chain(pumpkin_data::structure_extension::names().map(str::to_owned))
                     .collect()
             },
             &["minecraft:village_plains", "minecraft:ancient_city"],

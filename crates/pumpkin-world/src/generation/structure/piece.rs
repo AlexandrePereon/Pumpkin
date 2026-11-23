@@ -67,4 +67,7 @@ pub enum StructurePieceType {
     Shipwreck,
     NetherFossil,
     Jigsaw,
+
+    /// A piece of a structure of a registered type (see `structure::extension`).
+    Extension,
 }

@@ -32,6 +32,8 @@ use crate::{
     },
 };
 
+pub mod datapack;
+pub mod extension;
 pub(crate) mod height_sampler;
 pub mod piece;
 pub mod placement;
@@ -181,6 +183,8 @@ fn generate_structure_position_checked(
                 .get_structure_position(context)
                 .filter(|pos| is_valid_biome(pos.start_pos))
         }
+        // A registered type needs the biome source; see `lazily_generate_structure`.
+        StructureKeys::Extension(_) => None,
     }
 }
 
@@ -243,6 +247,14 @@ pub fn lazily_generate_structure(
             .strip_prefix('#')
             .unwrap_or(structure.biomes),
     )?;
+    if let StructureKeys::Extension(index) = *key {
+        return extension::generate(
+            index,
+            context,
+            &mut |x, y, z| biome_supplier.biome(x, y, z, multi_noise_sampler),
+            |biome| biomes.contains(&u16::from(biome.id)),
+        );
+    }
     if *key == StructureKeys::Monument {
         let center_x = crate::generation::positions::chunk_pos::get_center_x(context.chunk_x);
         let center_z = crate::generation::positions::chunk_pos::get_center_z(context.chunk_z);

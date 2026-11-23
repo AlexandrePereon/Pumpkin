@@ -1,7 +1,8 @@
 use std::borrow::Cow;
 
 use pumpkin_data::biome::Biome;
-use pumpkin_data::structures::{StructureKeys, StructurePlacementType, StructureSet};
+use pumpkin_data::structure_extension;
+use pumpkin_data::structures::{StructureKeys, StructurePlacementType};
 use pumpkin_data::tag::{self, RegistryKey};
 use pumpkin_data::translation;
 use pumpkin_util::PermissionLvl;
@@ -126,11 +127,9 @@ fn result_name(searched: &ResourceOrTag, found: &str) -> String {
 /// `None` means the id or tag is unknown; a known empty tag is still valid.
 fn wanted_structures(searched: &ResourceOrTag) -> Option<Vec<StructureKeys>> {
     match searched {
-        ResourceOrTag::Resource(id) => id
-            .is_vanilla()
-            .then(|| StructureKeys::from_name(id.path()))
-            .flatten()
-            .map(|key| vec![key]),
+        ResourceOrTag::Resource(id) => {
+            StructureKeys::from_name(&id.to_string()).map(|key| vec![key])
+        }
         ResourceOrTag::Tag(id) => {
             tag::get_tag_values(RegistryKey::WorldgenStructure, &id.to_string()).map(|names| {
                 names
@@ -142,15 +141,15 @@ fn wanted_structures(searched: &ResourceOrTag) -> Option<Vec<StructureKeys>> {
     }
 }
 
-/// Index into [`StructureSet::ALL`] of the set a structure belongs to, whose
+/// Index (see [`structure_extension::set`]) of the set a structure belongs to, whose
 /// placement decides where it may generate. Vanilla keeps this as a prepared
 /// reverse map (`ChunkGeneratorStructureState.placementsForStructure`); there
 /// are ~21 sets, so a scan is cheap enough for a command. An index rather than
 /// a reference because the sets are consts, whose addresses are not stable.
 fn structure_set_containing(key: StructureKeys) -> Option<usize> {
-    StructureSet::ALL
-        .iter()
-        .position(|set| set.structures.iter().any(|entry| entry.structure == key))
+    structure_extension::all_sets()
+        .find(|(_, _, set)| set.structures.iter().any(|entry| entry.structure == key))
+        .map(|(index, _, _)| index)
 }
 
 /// Unfloored horizontal distance, for picking the nearest of several hits
@@ -236,7 +235,9 @@ impl CommandExecutor for LocateStructureExecutor {
 
         let mut found: Option<(BlockPos, StructureKeys)> = None;
         for (set_index, keys) in scans {
-            let set = &StructureSet::ALL[set_index];
+            let Some(set) = structure_extension::set(set_index) else {
+                continue;
+            };
             let nearest = match &set.placement.placement_type {
                 // Strongholds come out of the pre-computed ring cache, which
                 // already holds positions they really occupy. A concentric-ring
@@ -292,7 +293,7 @@ impl CommandExecutor for LocateStructureExecutor {
             context,
             translation::java::COMMANDS_LOCATE_STRUCTURE_SUCCESS,
             translation::bedrock::COMMANDS_LOCATE_STRUCTURE_SUCCESS,
-            result_name(searched, &format!("minecraft:{}", key.to_name())),
+            result_name(searched, &structure_extension::full_name(key)),
             &target,
             false,
             distance,
@@ -460,6 +461,7 @@ pub fn register(dispatcher: &mut CommandDispatcher, registry: &PermissionRegistr
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pumpkin_data::structures::StructureSet;
     use pumpkin_util::identifier::Identifier;
 
     fn resource(path: &'static str) -> ResourceOrTag {
