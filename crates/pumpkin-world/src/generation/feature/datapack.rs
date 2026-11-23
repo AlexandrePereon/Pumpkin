@@ -328,7 +328,11 @@ fn direction(name: &str) -> Result<BlockDirection> {
     })
 }
 
-fn heightmap(name: &str) -> Result<HeightMap> {
+/// Reads a heightmap type name (`WORLD_SURFACE_WG`…).
+///
+/// # Errors
+/// When the name is not a heightmap type.
+pub fn heightmap(name: &str) -> Result<HeightMap> {
     Ok(match name {
         "WORLD_SURFACE_WG" => HeightMap::WorldSurfaceWg,
         "WORLD_SURFACE" => HeightMap::WorldSurface,
@@ -805,7 +809,10 @@ fn placement_modifier(value: &Value) -> Result<PlacementModifier> {
             y: int_provider(get("y"))?,
             z: int_provider(get("z"))?,
         }),
-        other => return Err(format!("unsupported placement modifier {other}")),
+        // A type registered by ported content.
+        other => PlacementModifier::Extension(super::extension::read_placement_modifier(
+            other, obj,
+        )?),
     })
 }
 
@@ -1351,7 +1358,8 @@ impl<'j> FeatureParser<'j> {
             "void_start_platform" => ConfiguredFeature::VoidStartPlatform(VoidStartPlatformFeature),
             "bonus_chest" => ConfiguredFeature::BonusChest(BonusChestFeature),
             "vines" => ConfiguredFeature::Vines(VinesFeature),
-            other => return Err(format!("unsupported feature type {other}")),
+            // A type registered by ported content.
+            other => ConfiguredFeature::Extension(super::extension::read_feature(other, config)?),
         })
     }
 }

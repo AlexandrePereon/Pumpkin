@@ -178,6 +178,8 @@ pub enum ConfiguredFeature {
     RandomNeighborSpread(RandomNeighborSpreadFeature),
     SingleBlockPillar(SingleBlockPillarFeature),
     SteppedColumnCluster(SteppedColumnClusterFeature),
+    /// A feature of a type registered by ported content (`feature::extension`).
+    Extension(Box<dyn super::extension::ExtensionFeature>),
 }
 
 // Yes this may look ugly and you wonder why this is hard coded, but it makes sense to hardcode since we have to add logic for these in code
@@ -545,6 +547,14 @@ impl ConfiguredFeature {
             Self::SteppedColumnCluster(feature) => {
                 feature.generate(chunk, block_registry, random, pos)
             }
+            Self::Extension(feature) => feature.generate(super::extension::FeatureContext {
+                chunk,
+                block_registry,
+                min_y,
+                height,
+                random,
+                pos,
+            }),
             Self::NoOp => false,
         }
     }

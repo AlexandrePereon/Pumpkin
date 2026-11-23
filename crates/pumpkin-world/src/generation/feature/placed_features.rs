@@ -190,6 +190,8 @@ pub enum PlacementModifier {
     RandomOffset(RandomOffsetPlacementModifier),
     Offset(OffsetPlacementModifier),
     FixedPlacement(Vec<BlockPos>),
+    /// A modifier of a type registered by ported content (`feature::extension`).
+    Extension(Box<dyn super::extension::ExtensionPlacementModifier>),
 }
 
 impl PlacementModifier {
@@ -231,6 +233,18 @@ impl PlacementModifier {
             Self::RandomOffset(modifier) => modifier.get_positions(random, pos),
             Self::Offset(modifier) => modifier.get_positions(random, pos),
             Self::FixedPlacement(positions) => Box::new(positions.clone().into_iter()),
+            Self::Extension(modifier) => Box::new(
+                modifier
+                    .positions(super::extension::PlacementContext {
+                        chunk,
+                        block_registry,
+                        min_y,
+                        height,
+                        random,
+                        pos,
+                    })
+                    .into_iter(),
+            ),
         }
     }
 }
