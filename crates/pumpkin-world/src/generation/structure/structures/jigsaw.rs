@@ -23,14 +23,93 @@ pub enum JigsawProjection {
 static DYNAMIC_POOLS: std::sync::LazyLock<dashmap::DashMap<String, Arc<TemplatePool>>> =
     std::sync::LazyLock::new(dashmap::DashMap::new);
 
-/// Registers a dynamically-loaded template pool from a runtime datapack.
-pub fn register_dynamic_template_pool(id: &str, pool: Arc<TemplatePool>) {
-    let key = if id.contains(':') {
+/// Pools as [`TemplatePool::discover`] found them in the generated data, once.
+static STATIC_POOL_CACHE: std::sync::LazyLock<dashmap::DashMap<String, Arc<TemplatePool>>> =
+    std::sync::LazyLock::new(dashmap::DashMap::new);
+
+/// Elements code added to template pools (see [`add_template_pool_elements`]), by pool id.
+static POOL_ADDITIONS: std::sync::LazyLock<dashmap::DashMap<String, Vec<Arc<PoolElement>>>> =
+    std::sync::LazyLock::new(dashmap::DashMap::new);
+
+fn canonical_pool_id(id: &str) -> String {
+    if id.contains(':') {
         id.to_string()
     } else {
         format!("minecraft:{id}")
+    }
+}
+
+/// `pool` with the elements code added to it appended, if any.
+fn with_additions(pool: Arc<TemplatePool>) -> Arc<TemplatePool> {
+    let Some(added) = POOL_ADDITIONS.get(&pool.id) else {
+        return pool;
     };
-    DYNAMIC_POOLS.insert(key, pool);
+    let mut elements = pool.elements.clone();
+    elements.extend(added.iter().cloned());
+    Arc::new(TemplatePool {
+        id: pool.id.clone(),
+        fallback: pool.fallback.clone(),
+        elements,
+        max_size: OnceLock::new(),
+    })
+}
+
+/// Adds elements to a template pool, after its own, as a mod does from code.
+///
+/// Waystones does it with an accessor on `StructureTemplatePool.templates`, Lithostitched
+/// with its `add_template_pool_elements` modifier. The pool may be vanilla's, or one a
+/// datapack defines or overrides.
+///
+/// Each element is written as in a pool file, `{"element": {...}, "weight": n}`; vanilla
+/// expands an element into `weight` entries of the pool's list, at its end, as Pumpkin does.
+/// The additions outlive datapack reloads (the pool a datapack loads later gets them too), as
+/// a modded server's registry keeps them for its lifetime.
+///
+/// # Errors
+/// When an element cannot be read; nothing is added then.
+pub fn add_template_pool_elements(
+    pool: &str,
+    elements: &[serde_json::Value],
+) -> Result<(), String> {
+    let mut read = Vec::with_capacity(elements.len());
+    for element in elements {
+        let weighted: RawWeightedPoolElement =
+            serde_json::from_value(element.clone()).map_err(|e| format!("{element}: {e}"))?;
+        let (kind, projection) = weighted
+            .element
+            .into_element()
+            .ok_or_else(|| format!("{element}: unknown feature"))?;
+        read.push(Arc::new(PoolElement {
+            weight: weighted.weight,
+            projection,
+            kind,
+        }));
+    }
+    let key = canonical_pool_id(pool);
+    POOL_ADDITIONS
+        .entry(key.clone())
+        .or_default()
+        .extend(read.iter().cloned());
+    // Already resolved: the dynamic pool gains them now, the cached generated one is read
+    // again.
+    STATIC_POOL_CACHE.remove(&key);
+    if let Some(mut dynamic) = DYNAMIC_POOLS.get_mut(&key) {
+        let mut elements = dynamic.elements.clone();
+        elements.extend(read);
+        *dynamic = Arc::new(TemplatePool {
+            id: dynamic.id.clone(),
+            fallback: dynamic.fallback.clone(),
+            elements,
+            max_size: OnceLock::new(),
+        });
+    }
+    Ok(())
+}
+
+/// Registers a dynamically-loaded template pool from a runtime datapack.
+pub fn register_dynamic_template_pool(id: &str, pool: Arc<TemplatePool>) {
+    let key = canonical_pool_id(id);
+    DYNAMIC_POOLS.insert(key, with_additions(pool));
 }
 
 /// Registers a dynamically-loaded template pool from raw JSON string (e.g. from an on-disk datapack).
@@ -57,12 +136,12 @@ pub fn register_dynamic_template_pool_json(
     } else {
         format!("minecraft:{id}")
     };
-    let pool = Arc::new(TemplatePool {
+    let pool = with_additions(Arc::new(TemplatePool {
         id: key.clone(),
         fallback: raw.fallback,
         elements,
         max_size: OnceLock::new(),
-    });
+    }));
     DYNAMIC_POOLS.insert(key, Arc::clone(&pool));
     Ok(pool)
 }
@@ -592,9 +671,7 @@ impl TemplatePool {
     /// Discovers a pool from dynamic datapacks, static codegen data, or fallback embedded assets.
     #[must_use]
     pub fn discover(id: &str) -> Option<Arc<Self>> {
-        static CACHE: std::sync::LazyLock<dashmap::DashMap<String, Arc<TemplatePool>>> =
-            std::sync::LazyLock::new(dashmap::DashMap::new);
-
+        let cache = &*STATIC_POOL_CACHE;
         let canonical_id = if id.contains(':') {
             id.to_string()
         } else {
@@ -607,7 +684,7 @@ impl TemplatePool {
         }
 
         // 2. Previously cached pools
-        if let Some(pool) = CACHE.get(&canonical_id) {
+        if let Some(pool) = cache.get(&canonical_id) {
             return Some(Arc::clone(&pool));
         }
 
@@ -619,14 +696,14 @@ impl TemplatePool {
                 elements: Vec::new(),
                 max_size: OnceLock::new(),
             });
-            CACHE.insert(canonical_id, Arc::clone(&pool));
+            cache.insert(canonical_id, Arc::clone(&pool));
             return Some(pool);
         }
 
         // 4. Static codegen template pools from pumpkin-data
         if let Some(static_pool) = pumpkin_data::template_pool::get_template_pool(&canonical_id) {
-            let pool = Arc::new(Self::from_static(static_pool));
-            CACHE.insert(canonical_id, Arc::clone(&pool));
+            let pool = with_additions(Arc::new(Self::from_static(static_pool)));
+            cache.insert(canonical_id, Arc::clone(&pool));
             return Some(pool);
         }
 
@@ -1092,6 +1169,49 @@ impl StructureGenerator for JigsawGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn single(pool: &TemplatePool, index: usize) -> (&str, u32) {
+        let element = &pool.elements[index];
+        match &element.kind {
+            PoolElementKind::Single { template, .. } => (template.as_str(), element.weight),
+            _ => panic!("not a single element"),
+        }
+    }
+
+    #[test]
+    fn code_adds_elements_to_generated_and_datapack_pools() {
+        let added = serde_json::json!({
+            "element": {
+                "element_type": "minecraft:legacy_single_pool_element",
+                "location": "verse:test/piece",
+                "processors": "minecraft:empty",
+                "projection": "rigid"
+            },
+            "weight": 2
+        });
+        // A generated pool, resolved before and after the addition.
+        let id = "minecraft:bastion/mobs/hoglin";
+        let before = TemplatePool::discover(id).unwrap().elements.len();
+        add_template_pool_elements(id, std::slice::from_ref(&added)).unwrap();
+        let pool = TemplatePool::discover(id).unwrap();
+        assert_eq!(pool.elements.len(), before + 1);
+        assert_eq!(single(&pool, before), ("verse:test/piece", 2));
+
+        // A datapack's pool, registered before and after: both get it, and a reload keeps it.
+        let json = r#"{"fallback": "minecraft:empty", "elements": [{"element": {"element_type": "minecraft:single_pool_element", "location": "verse:test/own", "processors": {"processors": []}, "projection": "rigid"}, "weight": 1}]}"#;
+        register_dynamic_template_pool_json("verse_test:pool_a", json).unwrap();
+        add_template_pool_elements("verse_test:pool_a", std::slice::from_ref(&added)).unwrap();
+        add_template_pool_elements("verse_test:pool_b", std::slice::from_ref(&added)).unwrap();
+        register_dynamic_template_pool_json("verse_test:pool_b", json).unwrap();
+        for id in ["verse_test:pool_a", "verse_test:pool_b"] {
+            let pool = TemplatePool::discover(id).unwrap();
+            assert_eq!(pool.elements.len(), 2, "{id}");
+            assert_eq!(single(&pool, 0), ("verse:test/own", 1));
+            assert_eq!(single(&pool, 1), ("verse:test/piece", 2));
+        }
+
+        assert!(add_template_pool_elements(id, &[serde_json::json!({"weight": 1})]).is_err());
+    }
 
     #[test]
     fn ancient_city_pools_match_vanilla_weights() {
