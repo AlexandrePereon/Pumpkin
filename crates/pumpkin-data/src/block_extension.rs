@@ -287,7 +287,40 @@ pub(crate) const fn block_by_raw_id(raw: u16) -> Option<&'static Block> {
 
 #[inline]
 pub(crate) fn block_by_name(name: &str) -> Option<&'static Block> {
-    EXTENSION.get()?.by_name.get(name).copied()
+    EXTENSION
+        .get()
+        .and_then(|extension| extension.by_name.get(name).copied())
+        .or_else(|| block_by_alias(name))
+}
+
+/// Block ids that name another block (vanilla's `MappedRegistry.addAlias`), by full id.
+static ALIASES: std::sync::RwLock<BTreeMap<String, String>> =
+    std::sync::RwLock::new(BTreeMap::new());
+
+/// Makes the block id `from` (`namespace:path`) name the block `to`, as vanilla's
+/// `Registry.addAlias` does for a renamed block: a lookup by name that finds no block `from`
+/// finds `to`. A mod's old names keep working in data written before the rename (its
+/// datapack files, structure templates, saved chunks).
+pub fn add_alias(from: &str, to: &str) {
+    if let Ok(mut aliases) = ALIASES.write() {
+        aliases.insert(from.to_string(), to.to_string());
+    }
+}
+
+// Off the vanilla path: only names no block has get here.
+#[cold]
+#[inline(never)]
+fn block_by_alias(name: &str) -> Option<&'static Block> {
+    let full = if name.contains(':') {
+        std::borrow::Cow::Borrowed(name)
+    } else {
+        std::borrow::Cow::Owned(format!("minecraft:{name}"))
+    };
+    let target = ALIASES.read().ok()?.get(full.as_ref())?.clone();
+    if target == full.as_ref() {
+        return None;
+    }
+    Block::from_name(&target)
 }
 
 // Off the vanilla path: only item ids with no vanilla block get here.
@@ -794,6 +827,19 @@ mod tests {
             .is_err(),
             "installed twice"
         );
+    }
+
+    #[test]
+    fn an_alias_names_another_block() {
+        super::add_alias("verse_alias_test:old_stone", "minecraft:stone");
+        assert_eq!(
+            Block::from_name("verse_alias_test:old_stone").map(|b| b.id),
+            Some(Block::STONE.id)
+        );
+        assert!(Block::from_name("verse_alias_test:missing").is_none());
+        // A name with a block of its own keeps it.
+        super::add_alias("minecraft:dirt", "minecraft:stone");
+        assert_eq!(Block::from_name("minecraft:dirt").map(|b| b.id), Some(Block::DIRT.id));
     }
 
     #[test]
