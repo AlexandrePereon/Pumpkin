@@ -782,13 +782,27 @@ impl JigsawBlock {
 
         let nbt = block.nbt.as_ref()?;
 
-        // Resolve facing and up from orientation property
+        // Resolve facing and up from orientation property. A template saved before 1.16 has
+        // `facing` instead; vanilla's `JigsawRotationFix` maps it to the orientation whose top
+        // is up (down: south, up: north).
         let orientation = palette
             .properties
             .iter()
             .find_map(|p| match p {
                 Property::Orientation(o) => Some(*o),
                 _ => None,
+            })
+            .or_else(|| {
+                palette.properties.iter().find_map(|p| {
+                    (p.key_str() == "facing").then(|| match p.value_str() {
+                        "down" => Orientation::DownSouth,
+                        "up" => Orientation::UpNorth,
+                        "south" => Orientation::SouthUp,
+                        "west" => Orientation::WestUp,
+                        "east" => Orientation::EastUp,
+                        _ => Orientation::NorthUp,
+                    })
+                })
             })
             .unwrap_or(Orientation::NorthUp);
 
@@ -807,16 +821,36 @@ impl JigsawBlock {
             Orientation::SouthUp => (BlockDirection::South, BlockDirection::Up),
         };
 
+        // Before 1.16 a jigsaw had one `attachement_type` (its name and its target) and a
+        // `target_pool`, renamed by vanilla's `JigsawPropertiesFix` when it loads the template.
+        let legacy_attachment = nbt.get_string("attachement_type");
+        let name = nbt.get_string("name").or(legacy_attachment);
+        let target = nbt.get_string("target").or(legacy_attachment);
+        let pool = nbt
+            .get_string("pool")
+            .or_else(|| nbt.get_string("target_pool"));
+        // Without `joint`, vanilla's default: aligned facing sideways, rollable up or down.
+        let joint = nbt.get_string("joint").map_or_else(
+            || {
+                if matches!(facing, BlockDirection::Up | BlockDirection::Down) {
+                    JigsawJointType::Rollable
+                } else {
+                    JigsawJointType::Aligned
+                }
+            },
+            JigsawJointType::from_str,
+        );
+
         Some(Self {
             pos: BlockPos(block.pos),
-            name: nbt.get_string("name").unwrap_or_default().to_string(),
-            target: nbt.get_string("target").unwrap_or_default().to_string(),
-            pool: nbt.get_string("pool").unwrap_or_default().to_string(),
+            name: name.unwrap_or_default().to_string(),
+            target: target.unwrap_or_default().to_string(),
+            pool: pool.unwrap_or_default().to_string(),
             final_state: nbt
                 .get_string("final_state")
                 .unwrap_or_default()
                 .to_string(),
-            joint: JigsawJointType::from_str(nbt.get_string("joint").unwrap_or_default()),
+            joint,
             facing,
             up,
             selection_priority: nbt.get_int("selection_priority").unwrap_or(0),
@@ -1176,6 +1210,75 @@ mod tests {
             PoolElementKind::Single { template, .. } => (template.as_str(), element.weight),
             _ => panic!("not a single element"),
         }
+    }
+
+    #[test]
+    fn jigsaws_saved_before_1_16_are_read_as_vanilla_fixes_them() {
+        use crate::generation::structure::template::{PaletteEntry, TemplateBlock};
+        use pumpkin_util::BlockDirection;
+        let block = |pairs: &[(&str, &str)]| {
+            let mut nbt = pumpkin_nbt::compound::NbtCompound::new();
+            for (key, value) in pairs {
+                nbt.put_string(key, (*value).to_string());
+            }
+            TemplateBlock {
+                pos: pumpkin_util::math::vector3::Vector3::new(2, 0, 0),
+                state: 0,
+                nbt: Some(nbt),
+            }
+        };
+        // `attachement_type` and `target_pool`, and `facing` instead of `orientation`.
+        let legacy = block(&[
+            ("attachement_type", "minecraft:building_entrance"),
+            ("target_pool", "minecraft:empty"),
+            ("final_state", "minecraft:air"),
+        ]);
+        for (facing, up) in [
+            ("west", BlockDirection::Up),
+            ("down", BlockDirection::South),
+            ("up", BlockDirection::North),
+        ] {
+            let jigsaw = JigsawBlock::from_template_block(
+                &legacy,
+                &PaletteEntry::from_string(&format!("minecraft:jigsaw[facing={facing}]")),
+            )
+            .unwrap();
+            assert_eq!(jigsaw.name, "minecraft:building_entrance");
+            assert_eq!(jigsaw.target, "minecraft:building_entrance");
+            assert_eq!(jigsaw.pool, "minecraft:empty");
+            assert_eq!(jigsaw.up, up, "{facing}");
+            let vertical = matches!(jigsaw.facing, BlockDirection::Up | BlockDirection::Down);
+            assert_eq!(
+                jigsaw.joint == JigsawJointType::Rollable,
+                vertical,
+                "{facing}"
+            );
+        }
+        // The current keys win, and an explicit joint is kept.
+        let current = block(&[
+            ("name", "a:b"),
+            ("target", "a:c"),
+            ("pool", "a:pool"),
+            ("joint", "rollable"),
+            ("attachement_type", "x:y"),
+        ]);
+        let jigsaw = JigsawBlock::from_template_block(
+            &current,
+            &PaletteEntry::from_string("minecraft:jigsaw[orientation=east_up]"),
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                jigsaw.name.as_str(),
+                jigsaw.target.as_str(),
+                jigsaw.pool.as_str()
+            ),
+            ("a:b", "a:c", "a:pool")
+        );
+        assert_eq!(
+            (jigsaw.facing, jigsaw.joint),
+            (BlockDirection::East, JigsawJointType::Rollable)
+        );
     }
 
     #[test]
