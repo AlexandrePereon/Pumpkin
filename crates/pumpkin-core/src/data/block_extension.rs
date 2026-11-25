@@ -291,6 +291,7 @@ fn extension_from_dump(
         .position(|state| state.id == block.default_state_id)
         .ok_or("the default state is not among its states")?;
     let states: &'static [BlockState] = Box::leak(states.into_boxed_slice());
+    let defs: &'static [PropertyDef] = Box::leak(defs.into_boxed_slice());
 
     let block = Box::leak(Box::new(Block {
         id: BlockId::extended(block.id)
@@ -307,6 +308,7 @@ fn extension_from_dump(
         item_id: block.item_id,
         default_state: &states[default_index],
         states,
+        property_slots: block_extension::property_slots(defs),
         // Not in the dump; Pumpkin's codegen takes them from elsewhere.
         flammable: None,
         experience: None,
@@ -315,7 +317,7 @@ fn extension_from_dump(
 
     Ok(ExtensionBlock {
         block,
-        properties: Box::leak(defs.into_boxed_slice()),
+        properties: defs,
     })
 }
 
@@ -538,6 +540,8 @@ fn copy_of(
         item_id: 0,
         default_state: &states[0],
         states,
+        // A single state: no properties.
+        property_slots: &[],
         // Left off rather than copied: a fixture block has no business burning,
         // dropping experience or loot.
         flammable: None,

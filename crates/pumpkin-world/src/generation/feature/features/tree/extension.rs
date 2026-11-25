@@ -248,7 +248,7 @@ impl GenerationCache for DynCache<'_> {
         GenerationCache::get_block_state(self.0, pos)
     }
 
-    fn get_fluid_and_fluid_state(&self, position: &Vector3<i32>) -> (Fluid, FluidState) {
+    fn get_fluid_and_fluid_state(&self, position: &Vector3<i32>) -> (&'static Fluid, FluidState) {
         self.0.get_fluid_and_fluid_state(position)
     }
 
