@@ -19,7 +19,8 @@ use std::sync::atomic::{AtomicPtr, Ordering};
 
 use pumpkin_util::math::boundingbox::BoundingBox;
 
-use crate::block_properties::{BlockProperties, COLLISION_SHAPES, Property};
+use crate::block_properties::{BlockProperties, COLLISION_SHAPES, Property, PropertyKey};
+use crate::blocks::PropertySlot;
 use crate::{Block, BlockId, BlockState, BlockStateId};
 
 /// Why [`install`] rejected an extension.
@@ -47,6 +48,9 @@ pub enum InstallError {
     },
     /// Properties must come in Minecraft's order, sorted by name, without repeats.
     PropertiesNotSorted { name: &'static str },
+    /// `Block::property_slots` does not describe the block's properties; build
+    /// them with [`property_slots`].
+    PropertySlots { name: &'static str },
 }
 
 impl fmt::Display for InstallError {
@@ -74,6 +78,9 @@ impl fmt::Display for InstallError {
             Self::PropertiesNotSorted { name } => {
                 write!(f, "properties of block {name} are not sorted by name")
             }
+            Self::PropertySlots { name } => {
+                write!(f, "property slots of block {name} do not match its properties")
+            }
         }
     }
 }
@@ -87,8 +94,73 @@ pub struct PropertyDef {
     pub values: &'static [&'static str],
 }
 
+/// The [`PropertySlot`]s of a block whose states span `properties`, for its
+/// `Block::property_slots`. Leaked: build them once per block.
+///
+/// A vanilla name keeps its typed key, and each value vanilla knows under that
+/// name its typed `Property`, so code written for vanilla properties (rotation,
+/// mirroring, waterlogging, the debug stick) works on extension blocks; any
+/// other name or value is a `Property::Extension`.
+#[must_use]
+pub fn property_slots(properties: &'static [PropertyDef]) -> &'static [PropertySlot] {
+    let slots: Vec<PropertySlot> = properties
+        .iter()
+        .zip(strides(properties))
+        .map(|(def, stride)| {
+            let key = PropertyKey::from_str(def.name);
+            let values: Vec<Property> = def
+                .values
+                .iter()
+                .map(|&value| {
+                    key.and_then(|key| Property::from_key_value_str(key, value))
+                        .unwrap_or(Property::Extension {
+                            key: def.name,
+                            value,
+                        })
+                })
+                .collect();
+            PropertySlot {
+                key: key.unwrap_or(PropertyKey::Extension(def.name)),
+                stride,
+                values: Box::leak(values.into_boxed_slice()),
+            }
+        })
+        .collect();
+    Box::leak(slots.into_boxed_slice())
+}
+
+/// The state stride of each property, the last one varying fastest.
+fn strides(properties: &[PropertyDef]) -> Vec<u16> {
+    let mut strides = vec![1u16; properties.len()];
+    let mut stride = 1u16;
+    for (slot, def) in strides.iter_mut().zip(properties).rev() {
+        *slot = stride;
+        stride = stride.saturating_mul(u16::try_from(def.values.len()).unwrap_or(u16::MAX));
+    }
+    strides
+}
+
+fn slots_match(slots: &[PropertySlot], properties: &[PropertyDef]) -> bool {
+    slots.len() == properties.len()
+        && slots
+            .iter()
+            .zip(properties)
+            .zip(strides(properties))
+            .all(|((slot, def), stride)| {
+                slot.key.to_str() == def.name
+                    && slot.stride == stride
+                    && slot.values.len() == def.values.len()
+                    && slot
+                        .values
+                        .iter()
+                        .zip(def.values)
+                        .all(|(value, name)| value.value_str() == *name)
+            })
+}
+
 /// A block contributed to the extension, with the properties its states span.
 pub struct ExtensionBlock {
+    /// Its `property_slots` must be [`property_slots`] of `properties`.
     pub block: &'static Block,
     /// Sorted by name — the order Minecraft's `StateDefinition` uses — so that
     /// states are their cartesian product with the last property varying
@@ -205,6 +277,10 @@ pub fn install(entries: Vec<ExtensionBlock>) -> Result<(), InstallError> {
                 expected_states,
                 found_states: block.states.len(),
             });
+        }
+
+        if !slots_match(block.property_slots, entry.properties) {
+            return Err(InstallError::PropertySlots { name: block.name });
         }
 
         for state in block.states {
@@ -391,42 +467,16 @@ fn properties_of_block(block: &Block) -> Option<&'static [PropertyDef]> {
 /// Properties of an extension block, computed at runtime.
 ///
 /// Vanilla blocks get a generated type per property layout. Extension blocks
-/// cannot, so this one carries the layout with it and keeps the state's index
-/// within its block, from which every value can be decoded.
+/// cannot, so this one carries the block's property slots with it and keeps the
+/// state's index within its block, from which every value can be decoded.
 pub struct ExtensionProperties {
-    properties: &'static [PropertyDef],
+    slots: &'static [PropertySlot],
     index: u16,
 }
 
 impl ExtensionProperties {
-    fn new(block: &Block, index: u16) -> Self {
-        Self {
-            properties: properties_of_block(block).unwrap_or_default(),
-            index,
-        }
-    }
-
-    /// The value index of each property, the last property varying fastest.
-    fn value_indices(&self) -> Vec<usize> {
-        let mut rest = usize::from(self.index);
-        let mut indices = vec![0; self.properties.len()];
-        for (slot, def) in indices.iter_mut().zip(self.properties).rev() {
-            let len = def.values.len().max(1);
-            *slot = rest % len;
-            rest /= len;
-        }
-        indices
-    }
-
-    fn from_value_indices(properties: &'static [PropertyDef], indices: &[usize]) -> Self {
-        let mut index = 0usize;
-        for (def, value) in properties.iter().zip(indices) {
-            index = index * def.values.len() + value;
-        }
-        Self {
-            properties,
-            index: u16::try_from(index).unwrap_or(0),
-        }
+    const fn value_index(&self, slot: &PropertySlot) -> u16 {
+        self.index / slot.stride % slot.count()
     }
 }
 
@@ -438,10 +488,7 @@ impl BlockProperties for ExtensionProperties {
     /// Without a block there is no layout to decode against, so the result
     /// only round-trips through [`Self::to_index`] and [`Self::to_state_id`].
     fn from_index(index: u16) -> Self {
-        Self {
-            properties: &[],
-            index,
-        }
+        Self { slots: &[], index }
     }
 
     fn handles_block_id(id: BlockId) -> bool {
@@ -462,29 +509,20 @@ impl BlockProperties for ExtensionProperties {
             .and_then(|first| id.as_u16().checked_sub(first.id.as_u16()))
             .filter(|index| usize::from(*index) < block.states.len())
             .unwrap_or(0);
-        Self::new(block, index)
+        // Extension blocks are leaked, and only they get here.
+        let slots = block_by_raw_id(block.id.as_u16()).map_or(&[][..], |b| b.property_slots);
+        Self { slots, index }
     }
 
     fn default(block: &Block) -> Self {
         Self::from_state_id(block.default_state.id, block)
     }
 
-    /// A vanilla name and value become their typed `Property`, so code written
-    /// for vanilla properties (rotation, the debug stick) works on them; anything
-    /// else is a `Property::Extension`.
+    /// The values `Block::property_values` gives for the same state.
     fn to_props(&self) -> Vec<Property> {
-        self.properties
+        self.slots
             .iter()
-            .zip(self.value_indices())
-            .filter_map(|(def, value)| {
-                let value = *def.values.get(value)?;
-                Some(
-                    Property::from_str_pair(def.name, value).unwrap_or(Property::Extension {
-                        key: def.name,
-                        value,
-                    }),
-                )
-            })
+            .map(|slot| slot.values[usize::from(self.value_index(slot))])
             .collect()
     }
 
@@ -493,21 +531,21 @@ impl BlockProperties for ExtensionProperties {
     /// ones are ignored, as the generated types do; validating them is the
     /// caller's job.
     fn from_props(props: &[Property], block: &Block) -> Self {
-        let default = Self::default(block);
-        let mut indices = default.value_indices();
+        let mut properties = Self::default(block);
         for prop in props {
             let (name, value) = (prop.key_str(), prop.value_str());
-            let found = default
-                .properties
-                .iter()
-                .enumerate()
-                .find(|(_, def)| def.name == name)
-                .and_then(|(slot, def)| Some((slot, def.values.iter().position(|v| *v == value)?)));
-            if let Some((slot, value_index)) = found {
-                indices[slot] = value_index;
-            }
+            let Some(slot) = properties.slots.iter().find(|slot| slot.key.to_str() == name) else {
+                continue;
+            };
+            let Some(new) = slot.values.iter().position(|v| v.value_str() == value) else {
+                continue;
+            };
+            let current = properties.value_index(slot);
+            // `new < count`, so the index stays inside the block's states.
+            properties.index =
+                properties.index - current * slot.stride + new as u16 * slot.stride;
         }
-        Self::from_value_indices(default.properties, &indices)
+        properties
     }
 }
 
@@ -629,6 +667,7 @@ mod tests {
         first_state: u16,
         states: u16,
         default: usize,
+        properties: &'static [PropertyDef],
     ) -> &'static Block {
         let states: &'static [BlockState] = Box::leak(
             (0..states)
@@ -663,6 +702,7 @@ mod tests {
             item_id: 0,
             default_state: &states[default],
             states,
+            property_slots: super::property_slots(properties),
             flammable: None,
             experience: None,
             loot_table: None,
@@ -682,13 +722,13 @@ mod tests {
         let marker_state = BlockStateId::extended(vanilla_states).unwrap_or(BlockStateId::AIR);
         let lamp_first = vanilla_states + 1;
 
-        let marker = leak_block(MARKER, marker_id, vanilla_states, 1, 0);
+        let marker = leak_block(MARKER, marker_id, vanilla_states, 1, 0, &[]);
         // The Extractor reports the lamp's default as its second state:
         // facing=north, lit=false.
-        let lamp = leak_block(LAMP, lamp_id, lamp_first, 8, 1);
+        let lamp = leak_block(LAMP, lamp_id, lamp_first, 8, 1, &LAMP_PROPERTIES);
         let dial_id = BlockId::extended(vanilla_blocks + 2).unwrap_or(BlockId::AIR);
         let dial_first = lamp_first + 8;
-        let dial = leak_block(DIAL, dial_id, dial_first, 2, 0);
+        let dial = leak_block(DIAL, dial_id, dial_first, 2, 0, &DIAL_PROPERTIES);
 
         let installed = install(vec![
             ExtensionBlock {
@@ -812,6 +852,54 @@ mod tests {
                 value: "red"
             }])
         );
+
+        // Property slots: upstream's arithmetic accessors, which rotation,
+        // mirroring and waterlogging use, work on the extension block.
+        let lamp_state = |offset: u16| {
+            BlockStateId::extended(lamp_first + offset).unwrap_or(BlockStateId::AIR)
+        };
+        for offset in 0..8 {
+            let id = lamp_state(offset);
+            assert_eq!(
+                lamp.property_values(id).collect::<Vec<_>>(),
+                lamp.properties(id).map(|p| p.to_props()).unwrap_or_default()
+            );
+        }
+        let east = Property::from_str_pair("facing", "east").unwrap();
+        assert_eq!(
+            lamp.with_property(lamp.default_state.id, east),
+            Some(lamp_state(7))
+        );
+        assert_eq!(
+            lamp.get_property(lamp_state(6), PropertyKey::Facing),
+            Some(east)
+        );
+        assert_eq!(
+            lamp.rotate(lamp_state(1), crate::block_rotation::Rotation::Clockwise90).id,
+            lamp_state(7)
+        );
+        assert_eq!(
+            lamp.mirror(lamp_state(7), crate::block_rotation::Mirror::FrontBack).id,
+            lamp_state(5)
+        );
+        assert!(!lamp.is_waterloggable());
+        assert_eq!(
+            lamp.state_from_properties(&[east, Property::from_str_pair("lit", "true").unwrap()])
+                .map(|s| s.id),
+            Some(lamp_state(6))
+        );
+        assert_eq!(
+            dial.with_property(
+                dial.default_state.id,
+                Property::Extension {
+                    key: "colour",
+                    value: "blue"
+                }
+            )
+            .map(BlockStateId::as_u16),
+            Some(dial_first + 1)
+        );
+        assert!(marker.property_slots.is_empty());
 
         // A block with a single state has no properties to report.
         assert_eq!(

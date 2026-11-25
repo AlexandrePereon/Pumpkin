@@ -307,7 +307,7 @@ impl BlockStateId {
     }
 
     /// # Safety
-    /// `inner < STATE_COUNT`.
+    /// `inner < STATE_COUNT`, or a state id of an installed extension block.
     #[inline]
     #[must_use]
     pub(crate) const unsafe fn new_unchecked(inner: u16) -> Self {

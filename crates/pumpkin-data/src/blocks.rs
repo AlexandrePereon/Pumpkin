@@ -396,12 +396,19 @@ impl Block {
         if (rotation == Rotation::None && mirror == Mirror::None) || self.states.len() <= 1 {
             return BlockState::from_id(id);
         }
-        let mut values = [Property::Waterlogged(false); MAX_BLOCK_PROPERTIES];
+        let mut buffer = [Property::Waterlogged(false); MAX_BLOCK_PROPERTIES];
         let count = self.property_slots.len();
-        for (slot, value) in values.iter_mut().zip(self.property_values(id)) {
-            *slot = value;
-        }
-        let values = &values[..count];
+        let collected: Vec<Property>;
+        let values = if count <= MAX_BLOCK_PROPERTIES {
+            for (slot, value) in buffer.iter_mut().zip(self.property_values(id)) {
+                *slot = value;
+            }
+            &buffer[..count]
+        } else {
+            // A block registered at runtime can have more properties than any vanilla one.
+            collected = self.property_values(id).collect();
+            &collected[..]
+        };
         let mut new_id = id;
         for value in transform_block_properties(self.name, values, rotation, mirror) {
             // changed only
