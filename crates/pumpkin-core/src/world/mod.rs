@@ -5745,9 +5745,15 @@ impl World {
         &self,
         chunks: impl IntoIterator<Item = impl std::borrow::Borrow<Vector2<i32>>>,
     ) {
-        let chunks_set: FxHashSet<_> = chunks
+        let requested: Vec<Vector2<i32>> = chunks.into_iter().map(|c| *c.borrow()).collect();
+        // A chunk a ticket still retains keeps its entities and block entities in memory,
+        // but its block entities are written to the chunk all the same: the chunk itself
+        // may be unloaded before this is called again, and it is then read back with them.
+        for chunk_pos in &requested {
+            self.save_block_entities(*chunk_pos);
+        }
+        let chunks_set: FxHashSet<_> = requested
             .into_iter()
-            .map(|c| *c.borrow())
             .filter(|pos| !self.level.is_chunk_retained(pos))
             .collect();
         if chunks_set.is_empty() {
@@ -5790,7 +5796,6 @@ impl World {
         }
 
         for chunk_pos in &chunks_set {
-            self.save_block_entities(*chunk_pos);
             self.block_entities.remove(chunk_pos);
         }
     }
